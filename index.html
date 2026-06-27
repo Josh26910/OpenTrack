@@ -3,329 +3,256 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>RangeVision Studio — Ballistic Interpolation</title>
+<title>OPENTRACK — Ballistic Visualizer</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Saira+Condensed:wght@500;600;700&family=Saira+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet" />
 <script>
   tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['Inter', 'system-ui', 'sans-serif'],
-          data: ['"Saira Condensed"', 'sans-serif'],
-          disp: ['"Saira Semi Condensed"', 'sans-serif'],
-        },
-        colors: {
-          ink: '#070A0F', panel: '#10151D', panel2: '#161C27',
-          line: '#222B39', line2: '#2C3647',
-          flame: '#FF6A1A', flame2: '#FF8A3D',
-          mut: '#8A94A6', mut2: '#5B6576',
-        },
+    darkMode: 'class',
+    theme: { extend: {
+      colors: {
+        ink:'#0a0a0a', surface:'#131313', card:'#1a1a1a', card2:'#20201f',
+        line:'#2a2a2a', line2:'#353535',
+        primary:'#ff5a00', primary2:'#ff7a33',
+        green:'#00e676', green2:'#7dffa2',
+        txt:'#e5e2e1', mut:'#ab897e', mut2:'#7d7873',
       },
-    },
+      fontFamily: { sans:['Inter','system-ui','sans-serif'], mono:['"JetBrains Mono"','monospace'] },
+    }},
   };
 </script>
 <style>
-  html, body { background: #070A0F; }
-  .grid-bg {
-    background-image:
-      linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
-    background-size: 26px 26px;
-  }
-  .tnum { font-variant-numeric: tabular-nums; }
-  input[type=range].sk { -webkit-appearance:none; appearance:none; height:4px; border-radius:999px; background:#222B39; outline:none; }
-  input[type=range].sk::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:14px;height:14px;border-radius:50%;background:#FF6A1A;cursor:pointer;box-shadow:0 0 0 4px rgba(255,106,26,.18); }
-  input[type=range].sk::-moz-range-thumb { width:14px;height:14px;border:none;border-radius:50%;background:#FF6A1A;cursor:pointer;box-shadow:0 0 0 4px rgba(255,106,26,.18); }
-  .num-in { background:#0C1119; border:1px solid #222B39; }
-  .num-in:focus { border-color:#FF6A1A; outline:none; box-shadow:0 0 0 3px rgba(255,106,26,.12); }
-  .drop-live { border-color:#FF6A1A !important; background:rgba(255,106,26,.06); }
-  @keyframes blip { 0%,100%{opacity:.35} 50%{opacity:1} }
-  .blip { animation: blip 1.4s ease-in-out infinite; }
-  .nobar::-webkit-scrollbar { width:0; height:0; }
-  .card-accent { position:relative; }
-  .card-accent::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:#FF6A1A; opacity:.0; transition:opacity .3s; }
-  .card-accent.on::before { opacity:.9; }
+  html,body{background:#0a0a0a;color:#e5e2e1;font-family:'Inter',sans-serif;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .tnum{font-variant-numeric:tabular-nums;}
+  .material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;direction:ltr;}
+  .hide-scrollbar::-webkit-scrollbar{display:none;} .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
+  .telemetry-card{background:#1a1a1a;border:1px solid #2a2a2a;transition:all .18s ease-out;}
+  .telemetry-card:hover{border-color:#ff5a00;transform:translateY(-2px);}
+  .status-pulse{animation:pulse 2s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,230,118,.45);}70%{box-shadow:0 0 0 6px rgba(0,230,118,0);}100%{box-shadow:0 0 0 0 rgba(0,230,118,0);}}
+  .blip{animation:blip 1.4s ease-in-out infinite;} @keyframes blip{0%,100%{opacity:.35}50%{opacity:1}}
+  .video-overlay-gradient{background:linear-gradient(to top, rgba(0,0,0,.85) 0%, transparent 38%, transparent 62%, rgba(0,0,0,.45) 100%);}
+  input[type=range].sk{-webkit-appearance:none;appearance:none;height:4px;border-radius:999px;background:#2a2a2a;outline:none;}
+  input[type=range].sk::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:#ff5a00;cursor:pointer;box-shadow:0 0 0 4px rgba(255,90,0,.18);}
+  input[type=range].sk::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:#ff5a00;cursor:pointer;}
+  .num-in{background:#0e0e0e;border:1px solid #2a2a2a;}
+  .num-in:focus{border-color:#ff5a00;outline:none;box-shadow:0 0 0 3px rgba(255,90,0,.12);}
+  .tile-in{background:transparent;border:none;outline:none;width:100%;}
+  .tile-in:focus{outline:none;}
+  /* hide number spinners */
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  input[type=number]{-moz-appearance:textfield;}
+  .drop-live{border-color:#ff5a00 !important;background:rgba(255,90,0,.06);}
 </style>
 </head>
-<body class="font-sans text-white antialiased grid-bg min-h-screen">
+<body class="bg-ink text-txt antialiased overflow-hidden h-screen">
 
-<!-- ===== Top bar ===== -->
-<header class="border-b border-line/80 bg-ink/70 backdrop-blur sticky top-0 z-30">
-  <div class="max-w-[1500px] mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+<!-- ===== Top nav ===== -->
+<header class="flex justify-between items-center px-4 sm:px-6 h-16 w-full fixed top-0 z-50 bg-ink border-b border-line">
+  <div class="flex items-center gap-8 min-w-0">
     <div class="flex items-center gap-2.5">
-      <div class="h-7 w-7 grid place-items-center rounded-[7px] bg-flame text-ink font-disp font-bold text-lg leading-none -skew-x-6">R</div>
-      <div class="leading-none">
-        <div class="font-disp font-bold tracking-tight text-[15px]">RANGE<span class="text-flame">VISION</span> <span class="text-mut2 font-sans font-normal text-[11px]">studio</span></div>
-        <div class="text-[10px] text-mut2 tracking-[0.22em] -mt-0.5">BALLISTIC INTERPOLATION</div>
-      </div>
+      <div class="h-7 w-7 grid place-items-center rounded-lg bg-primary text-ink font-black text-lg leading-none -skew-x-6">O</div>
+      <div class="font-black text-xl tracking-tighter text-primary uppercase leading-none">OPEN<span class="text-txt">TRACK</span></div>
     </div>
-    <div class="ml-auto flex items-center gap-4 text-[11px] text-mut">
-      <span id="metaRes" class="tnum hidden sm:inline">—</span>
-      <span class="h-3 w-px bg-line hidden sm:inline-block"></span>
-      <span class="flex items-center gap-1">fps
-        <input id="fpsInput" type="number" min="1" max="240" class="num-in w-12 px-1.5 py-0.5 rounded text-white text-[11px] tnum text-center" value="30" />
-      </span>
-      <span class="h-3 w-px bg-line"></span>
-      <span class="flex items-center gap-1.5">
-        <span id="dot" class="h-2 w-2 rounded-full bg-mut2"></span>
-        <span id="statusTxt" class="tracking-wide">IDLE</span>
-      </span>
+    <nav class="hidden md:flex gap-6 items-center h-full text-sm">
+      <a class="text-primary border-b-2 border-primary pb-1 cursor-pointer">Visualizer</a>
+      <a class="text-mut hover:text-primary transition-colors cursor-pointer">Analysis</a>
+      <a class="text-mut hover:text-primary transition-colors cursor-pointer">Optimizer</a>
+    </nav>
+  </div>
+  <div class="flex items-center gap-3 sm:gap-5">
+    <span id="metaRes" class="mono text-[11px] text-mut2 hidden sm:inline tnum">—</span>
+    <label class="hidden sm:flex items-center gap-1.5 mono text-[11px] text-mut2">FPS
+      <input id="fpsInput" type="number" min="1" max="240" value="30" class="num-in w-12 px-1.5 py-1 rounded text-txt text-[12px] tnum text-center mono" />
+    </label>
+    <div class="flex items-center gap-2.5 bg-card2 px-3 py-1.5 rounded-lg border border-line">
+      <span id="dot" class="w-2 h-2 rounded-full bg-mut2"></span>
+      <div class="flex flex-col leading-none">
+        <span class="mono text-[9px] uppercase text-mut2">Status</span>
+        <span id="statusTxt" class="mono text-[11px] text-mut">IDLE</span>
+      </div>
     </div>
   </div>
 </header>
 
-<main class="max-w-[1500px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6">
+<!-- ===== Left rail: shot history ===== -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-16 md:w-60 z-40 bg-surface border-r border-line flex flex-col">
+  <div class="p-4 border-b border-line flex justify-between items-center">
+    <h2 class="mono text-[11px] text-mut uppercase tracking-widest hidden md:block">Shot History</h2>
+    <span class="material-symbols-outlined text-mut2 text-base">history</span>
+  </div>
+  <div id="shotList" class="flex-1 overflow-y-auto hide-scrollbar p-2 space-y-1">
+    <div class="p-3 text-center text-mut2 mono text-[10px] hidden md:block">No shots yet. Build a trajectory and hit <span class="text-primary">Save shot</span>.</div>
+  </div>
+  <div class="p-3 border-t border-line">
+    <button id="newSession" class="w-full py-2 bg-primary text-ink mono text-[11px] font-bold uppercase rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-1.5">
+      <span class="material-symbols-outlined text-base">add</span><span class="hidden md:inline">New session</span>
+    </button>
+  </div>
+</aside>
 
-  <!-- ===== Left: stage + calibration ===== -->
-  <section class="min-w-0">
-    <!-- Drop zone -->
-    <div id="dropZone" class="relative rounded-2xl border-2 border-dashed border-line bg-panel/60 transition-colors grid place-items-center text-center px-6 py-20 cursor-pointer select-none">
-      <div class="max-w-sm mx-auto">
-        <div class="mx-auto mb-5 h-14 w-14 grid place-items-center rounded-full border border-line bg-panel2">
-          <svg viewBox="0 0 24 24" class="h-6 w-6 text-flame" fill="none" stroke="currentColor" stroke-width="1.7">
-            <path d="M12 16V4m0 0L8 8m4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round"/>
-          </svg>
+<!-- ===== Main ===== -->
+<main class="ml-16 md:ml-60 pt-16 h-screen flex flex-col">
+  <div class="flex-1 flex flex-col xl:flex-row overflow-hidden">
+
+    <!-- Center: visualizer -->
+    <section class="flex-1 flex flex-col p-4 gap-4 min-w-0">
+      <div class="flex-1 relative bg-black rounded-xl border border-line overflow-hidden group shadow-2xl grid place-items-center min-h-0">
+
+        <!-- Drop zone -->
+        <div id="dropZone" class="absolute inset-0 z-30 grid place-items-center text-center px-6 cursor-pointer select-none bg-[#0a0a0a] transition-colors">
+          <div class="max-w-sm mx-auto">
+            <div class="mx-auto mb-5 h-14 w-14 grid place-items-center rounded-full border border-line bg-card">
+              <span class="material-symbols-outlined text-primary text-3xl">videocam</span>
+            </div>
+            <h2 class="text-xl font-bold tracking-tight">Load a swing clip</h2>
+            <p class="text-sm text-mut mt-1.5 leading-relaxed">Drag a video here or click to browse. Any resolution, any frame rate — processed locally.</p>
+            <button id="browseBtn" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-ink hover:bg-primary2 transition-colors">Choose video</button>
+            <p class="mono text-[10px] text-mut2 mt-4 uppercase tracking-widest">.mp4 · .mov · .webm — nothing leaves your machine</p>
+          </div>
+          <input id="fileInput" type="file" accept="video/*" class="hidden" />
         </div>
-        <h2 class="font-disp text-xl font-bold tracking-tight">Load a swing clip to calibrate</h2>
-        <p class="text-sm text-mut mt-1.5 leading-relaxed">Drag a video here or click to browse. Any resolution, any frame rate.</p>
-        <button id="browseBtn" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-flame px-4 py-2 text-sm font-semibold text-ink hover:bg-flame2 transition-colors">Choose video</button>
-        <p class="text-[11px] text-mut2 mt-4">.mp4 · .mov · .avi · .webm — processed locally, nothing leaves your machine.</p>
-      </div>
-      <input id="fileInput" type="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm,video/*" class="hidden" />
-    </div>
 
-    <!-- Stage -->
-    <div id="stageWrap" class="hidden" style="position:relative;">
-      <div id="stage" class="relative mx-auto rounded-2xl bg-black border border-line" style="max-height:70vh; width:max-content; max-width:100%; cursor:crosshair; overflow:visible;">
-        <video id="video" playsinline class="block max-h-[70vh] max-w-full rounded-2xl"></video>
-        <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+        <!-- Stage -->
+        <div id="stageWrap" class="hidden w-full h-full grid place-items-center">
+          <div id="stage" class="relative" style="display:inline-block; max-width:100%; max-height:100%; cursor:crosshair; line-height:0;">
+            <video id="video" playsinline class="block" style="max-height:calc(100vh - 230px); max-width:100%;"></video>
+            <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
 
+            <!-- live badge -->
+            <div id="liveBadge" class="absolute top-4 left-4 z-20 hidden mono text-[11px] text-primary items-center gap-2 bg-black/60 px-3 py-1 rounded-full border border-primary/30">
+              <span class="w-2 h-2 rounded-full bg-primary blip"></span> TRACKING
+            </div>
 
-        <!-- guided hint -->
-        <div id="modeHint" class="absolute left-1/2 -translate-x-1/2 top-3 px-3 py-1.5 rounded-full bg-ink/80 backdrop-blur border border-line text-[11px] text-mut tracking-wide">
-          Step to impact, then <span class="text-white font-semibold">click the ball</span> for 3–4 frames
+            <!-- guided hint -->
+            <div id="modeHint" class="absolute left-1/2 -translate-x-1/2 top-4 z-20 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur border border-line text-[11px] text-mut">
+              Step to impact, then <span class="text-txt font-semibold">click the ball</span>
+            </div>
+
+            <!-- frame readout -->
+            <div class="absolute left-4 bottom-4 z-20 flex items-center gap-2 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur border border-line">
+              <span id="modeLed" class="h-1.5 w-1.5 rounded-full bg-primary blip"></span>
+              <span id="frameTxt" class="mono text-[12px] tracking-wider text-mut">FRAME 0</span>
+            </div>
+
+            <!-- watermark -->
+            <div class="absolute bottom-4 right-4 z-20 mono text-[10px] text-white/25 tracking-widest pointer-events-none select-none">OPENTRACK</div>
+          </div>
         </div>
-
-        <!-- frame readout -->
-        <div class="absolute left-3 bottom-3 flex items-center gap-2 px-2.5 py-1 rounded-md bg-ink/75 backdrop-blur border border-line">
-          <span id="modeLed" class="h-1.5 w-1.5 rounded-full bg-flame blip"></span>
-          <span id="frameTxt" class="font-data text-[12px] tracking-[0.12em] text-mut">FRAME 0</span>
-        </div>
       </div>
 
-      <!-- Apex drag handle — lives outside the canvas so it can go above the video -->
-      <div id="apexHandle" style="display:none; position:fixed; width:20px; height:20px; margin-left:-10px; margin-top:-10px; border-radius:50%; border:2px solid #FF6A1A; background:rgba(255,106,26,0.18); cursor:grab; z-index:51; pointer-events:auto;">
-        <svg style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)" width="10" height="10" viewBox="0 0 10 10">
-          <line x1="0" y1="5" x2="10" y2="5" stroke="#FF6A1A" stroke-width="1.5"/>
-          <line x1="5" y1="0" x2="5" y2="10" stroke="#FF6A1A" stroke-width="1.5"/>
-        </svg>
-      </div>
-
-      <!-- transport -->
-      <div class="mt-3 rounded-xl border border-line bg-panel/70 px-3 py-3">
-
-        <!-- Row 1: play + frame step + scrub -->
+      <!-- Transport -->
+      <div id="transport" class="hidden rounded-xl border border-line bg-card px-3 py-3">
         <div class="flex items-center gap-2">
-
-          <!-- Play/Pause -->
-          <button id="playBtn" style="min-width:36px;min-height:36px;" class="flex items-center justify-center rounded-lg bg-flame text-ink hover:bg-flame2 transition-colors shrink-0 px-2.5">
-            <svg id="playIcon"  width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+          <button id="playBtn" class="flex items-center justify-center rounded-lg bg-primary text-ink hover:bg-primary2 transition-colors shrink-0" style="width:38px;height:38px;">
+            <svg id="playIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
             <svg id="pauseIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
           </button>
-
-          <!-- ◀ PREV FRAME -->
-          <button id="stepBack"
-            style="min-width:80px;min-height:36px;"
-            class="flex items-center justify-center gap-1.5 rounded-lg border border-line bg-panel2 px-3 text-white hover:border-flame/60 hover:text-flame transition-colors shrink-0 font-data text-[13px] tracking-wide">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <!-- vertical bar on left, triangle pointing left -->
-              <rect x="4" y="4" width="3" height="16" rx="1"/>
-              <polygon points="19,4 8,12 19,20"/>
-            </svg>
-            PREV
+          <button id="stepBack" class="flex items-center justify-center gap-1.5 rounded-lg border border-line bg-card2 px-3 text-txt hover:border-primary/60 hover:text-primary transition-colors shrink-0 mono text-[12px]" style="height:38px;">
+            <span class="material-symbols-outlined text-base">first_page</span>PREV
           </button>
-
-          <!-- NEXT FRAME ▶ -->
-          <button id="stepFwd"
-            style="min-width:80px;min-height:36px;"
-            class="flex items-center justify-center gap-1.5 rounded-lg border border-line bg-panel2 px-3 text-white hover:border-flame/60 hover:text-flame transition-colors shrink-0 font-data text-[13px] tracking-wide">
-            NEXT
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <!-- triangle pointing right, vertical bar on right -->
-              <polygon points="5,4 16,12 5,20"/>
-              <rect x="17" y="4" width="3" height="16" rx="1"/>
-            </svg>
+          <button id="stepFwd" class="flex items-center justify-center gap-1.5 rounded-lg border border-line bg-card2 px-3 text-txt hover:border-primary/60 hover:text-primary transition-colors shrink-0 mono text-[12px]" style="height:38px;">
+            NEXT<span class="material-symbols-outlined text-base">last_page</span>
           </button>
-
-          <!-- Scrub -->
           <div class="flex-1 flex items-center gap-2 min-w-0">
-            <span id="tCur" class="font-data text-[12px] text-mut tnum" style="min-width:36px;text-align:right;">0.00</span>
+            <span id="tCur" class="mono text-[12px] text-mut tnum" style="min-width:36px;text-align:right;">0.00</span>
             <input id="seek" type="range" class="sk flex-1" min="0" max="1000" value="0" />
-            <span id="tDur" class="font-data text-[12px] text-mut tnum" style="min-width:36px;">0.00</span>
+            <span id="tDur" class="mono text-[12px] text-mut tnum" style="min-width:36px;">0.00</span>
           </div>
         </div>
-
-        <!-- Row 2: speed + options -->
         <div class="flex items-center gap-2 mt-2.5 flex-wrap">
           <div class="flex items-center gap-1 shrink-0">
-            <span class="text-[11px] text-mut2 font-data mr-1">SPEED</span>
-            <button data-rate="0.25" class="rateBtn px-2 py-1 rounded text-[11px] font-data tracking-wide text-mut hover:text-white border border-transparent hover:border-line">0.25×</button>
-            <button data-rate="0.5"  class="rateBtn px-2 py-1 rounded text-[11px] font-data tracking-wide text-mut hover:text-white border border-transparent hover:border-line">0.5×</button>
-            <button data-rate="1"    class="rateBtn px-2 py-1 rounded text-[11px] font-data tracking-wide text-white bg-panel2 border border-line">1×</button>
+            <span class="mono text-[10px] text-mut2 mr-1">SPEED</span>
+            <button data-rate="0.25" class="rateBtn px-2 py-1 rounded mono text-[11px] text-mut hover:text-txt border border-transparent">0.25×</button>
+            <button data-rate="0.5" class="rateBtn px-2 py-1 rounded mono text-[11px] text-mut hover:text-txt border border-transparent">0.5×</button>
+            <button data-rate="1" class="rateBtn px-2 py-1 rounded mono text-[11px] text-txt bg-card2 border border-line">1×</button>
           </div>
           <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
-            <input id="guideChk" type="checkbox" class="accent-flame" style="width:14px;height:14px;" />
-            Show guide path <span class="text-mut2">(paused only)</span>
+            <input id="guideChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Guide <span class="text-mut2">(paused)</span>
           </label>
           <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
-            <input id="freezeChk" type="checkbox" class="accent-flame" style="width:14px;height:14px;" />
-            Park ring at exit edge <span class="text-mut2">(else flies off)</span>
+            <input id="freezeChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Park at edge
           </label>
-          <button id="playImpact" class="ml-auto rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-white transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
-          <button id="newClip" class="rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-white transition-colors">New clip</button>
+          <button id="playImpact" class="ml-auto rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-mut hover:text-txt transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ===== Right: sidebar ===== -->
-  <aside class="lg:sticky lg:top-20 self-start space-y-4 max-h-[calc(100vh-6rem)] overflow-y-auto nobar pr-0.5">
+    <!-- Right: control + telemetry -->
+    <section class="w-full xl:w-[400px] shrink-0 p-4 border-l border-line bg-surface overflow-y-auto hide-scrollbar space-y-5">
 
-    <!-- Calibration stepper -->
-    <div class="rounded-2xl border border-line bg-panel/70 overflow-hidden">
-      <div class="px-4 py-3 border-b border-line">
-        <div class="font-disp font-bold tracking-tight text-[15px]">CALIBRATION</div>
-        <div class="text-[10px] text-mut2 tracking-[0.2em]">PLOT LAUNCH → LANDING</div>
-      </div>
-      <div class="p-4 space-y-3">
-        <!-- step 1 -->
-        <div id="step1" class="rounded-xl border border-flame/50 bg-flame/[0.06] p-3 transition-colors">
-          <div class="flex items-center gap-2">
-            <span class="h-5 w-5 grid place-items-center rounded-full bg-flame text-ink text-[11px] font-bold">1</span>
-            <span class="font-semibold text-[13px]">Launch vector</span>
-            <span id="lpCount" class="ml-auto font-data text-[12px] tnum text-flame">0 pts</span>
-          </div>
-          <p class="text-[11px] text-mut mt-1.5 leading-relaxed">Step to impact and click the ball on as many consecutive frames as you like — more points give a more accurate velocity fit.</p>
-          <div class="flex gap-2 mt-2.5">
-            <button id="modeLaunch" class="flex-1 rounded-lg bg-flame px-3 py-1.5 text-[13px] font-semibold text-ink hover:bg-flame2 transition-colors">Plot launch</button>
-            <button id="undoPt" class="rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-white transition-colors">Undo</button>
-          </div>
+      <!-- Calibration -->
+      <div>
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="mono text-[11px] text-mut uppercase tracking-widest">Calibration</h2>
+          <span class="mono text-[10px] text-mut2">PLOT → BUILD</span>
         </div>
-        <!-- step 2 -->
-        <div id="step2" class="rounded-xl border border-line bg-panel2/40 p-3 transition-colors">
-          <div class="flex items-center gap-2">
-            <span id="s2num" class="h-5 w-5 grid place-items-center rounded-full bg-panel2 border border-line text-mut text-[11px] font-bold">2</span>
-            <span class="font-semibold text-[13px]">Landing point</span>
-            <span id="ldState" class="ml-auto font-data text-[12px] tnum text-mut2">unset</span>
+        <div class="space-y-3">
+          <div id="step1" class="telemetry-card rounded-lg p-3" style="border-color:rgba(255,90,0,.5);">
+            <div class="flex items-center gap-2">
+              <span class="h-5 w-5 grid place-items-center rounded-full bg-primary text-ink text-[11px] font-bold">1</span>
+              <span class="font-semibold text-[13px]">Launch vector</span>
+              <span id="lpCount" class="ml-auto mono text-[12px] tnum text-primary">0 pts</span>
+            </div>
+            <p class="text-[11px] text-mut mt-1.5 leading-relaxed">Step to impact and click the ball on consecutive frames — the more points, the better the track.</p>
+            <div class="flex gap-2 mt-2.5">
+              <button id="modeLaunch" class="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-bold text-ink hover:bg-primary2 transition-colors">Plot launch</button>
+              <button id="undoPt" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-txt transition-colors">Undo</button>
+            </div>
           </div>
-          <p class="text-[11px] text-mut mt-1.5 leading-relaxed">If the ball is <b class="text-white">on screen</b>: scrub to landing and click it. If it flew <b class="text-white">off screen</b>: enter the estimated landing frame below.</p>
-          <button id="modeLanding" class="w-full mt-2.5 rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] font-semibold text-white hover:border-flame/60 transition-colors disabled:opacity-40" disabled>Click to set landing</button>
-          <!-- off-screen landing -->
-          <div class="mt-2 flex items-center gap-2">
-            <span class="text-[11px] text-mut2 shrink-0">Off-screen frame:</span>
-            <input id="offscreenFrame" type="number" min="0" step="1" placeholder="e.g. 320"
-              class="num-in flex-1 px-2 py-1 rounded-lg text-white font-data text-[13px] tnum" />
-            <button id="offscreenSet" class="shrink-0 rounded-lg bg-panel2 border border-line px-2.5 py-1 text-[12px] text-white hover:border-flame/60 transition-colors disabled:opacity-40" disabled>Set</button>
+          <div id="step2" class="telemetry-card rounded-lg p-3">
+            <div class="flex items-center gap-2">
+              <span id="s2num" class="h-5 w-5 grid place-items-center rounded-full bg-card2 border border-line text-mut text-[11px] font-bold">2</span>
+              <span class="font-semibold text-[13px]">Landing point</span>
+              <span id="ldState" class="ml-auto mono text-[12px] tnum text-mut2">unset</span>
+            </div>
+            <p class="text-[11px] text-mut mt-1.5 leading-relaxed">On screen: scrub to landing and click it. Off screen: enter the landing frame.</p>
+            <button id="modeLanding" class="w-full mt-2.5 rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] font-semibold text-txt hover:border-primary/60 transition-colors disabled:opacity-40" disabled>Click to set landing</button>
+            <div class="mt-2 flex items-center gap-2">
+              <span class="text-[11px] text-mut2 shrink-0">Off-screen frame:</span>
+              <input id="offscreenFrame" type="number" min="0" step="1" placeholder="e.g. 120" class="num-in flex-1 px-2 py-1 rounded-lg text-txt mono text-[13px] tnum" />
+              <button id="offscreenSet" class="shrink-0 rounded-lg bg-card2 border border-line px-2.5 py-1 text-[12px] text-txt hover:border-primary/60 transition-colors disabled:opacity-40" disabled>Set</button>
+            </div>
+            <p id="offscreenHint" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden">Ring will arc past the edge using physics extrapolation.</p>
           </div>
-          <p id="offscreenHint" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden">Ring will track past the edge of frame using physics extrapolation.</p>
+          <button id="buildBtn" class="w-full rounded-lg bg-card2 border border-line px-3 py-2 text-[13px] font-bold text-txt hover:border-primary/60 transition-colors disabled:opacity-40 flex items-center justify-center gap-2" disabled>
+            <span id="buildDot" class="h-2 w-2 rounded-full bg-mut2"></span> Build trajectory
+          </button>
+          <button id="resetCal" class="w-full rounded-lg px-3 py-1.5 text-[12px] text-mut2 hover:text-mut transition-colors">Reset calibration</button>
         </div>
-        <!-- build -->
-        <button id="buildBtn" class="w-full rounded-lg bg-panel2 border border-line px-3 py-2 text-[13px] font-semibold text-white hover:border-flame/60 transition-colors disabled:opacity-40 flex items-center justify-center gap-2" disabled>
-          <span id="buildDot" class="h-2 w-2 rounded-full bg-mut2"></span>
-          Build trajectory
-        </button>
-        <button id="resetCal" class="w-full rounded-lg px-3 py-1.5 text-[12px] text-mut2 hover:text-mut transition-colors">Reset calibration</button>
       </div>
-    </div>
 
-    <!-- Manual data input -->
-    <div class="rounded-2xl border border-line bg-panel/70 overflow-hidden">
-      <div class="px-4 py-3 border-b border-line flex items-center justify-between">
-        <div>
-          <div class="font-disp font-bold tracking-tight text-[15px]">YOUR DATA</div>
-          <div class="text-[10px] text-mut2 tracking-[0.2em]">MANUAL ENTRY</div>
+      <!-- Telemetry grid -->
+      <div>
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="mono text-[11px] text-mut uppercase tracking-widest">Telemetry Grid</h2>
+          <span class="mono text-[10px] text-mut2">TAP A VALUE TO EDIT</span>
         </div>
-        <span class="text-[10px] tracking-[0.16em] text-mut2">TRACKMAN</span>
+        <div id="telemetryGrid" class="grid grid-cols-2 gap-3"></div>
       </div>
-      <div class="p-4 grid grid-cols-2 gap-3">
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">CLUB SPEED</span>
-          <div class="flex items-center mt-1">
-            <input data-k="clubSpeed" type="number" step="0.1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">mph</span>
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">BALL SPEED</span>
-          <div class="flex items-center mt-1">
-            <input data-k="ballSpeed" type="number" step="0.1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">mph</span>
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">LAUNCH ANGLE</span>
-          <div class="flex items-center mt-1">
-            <input data-k="launch" type="number" step="0.1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">°</span>
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">SPIN RATE</span>
-          <div class="flex items-center mt-1">
-            <input data-k="spin" type="number" step="1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">rpm</span>
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">CARRY</span>
-          <div class="flex items-center mt-1">
-            <input data-k="carry" type="number" step="0.1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">yds</span>
-          </div>
-        </label>
-        <label class="block">
-          <span class="text-[10px] tracking-[0.14em] text-mut2">TOTAL DIST</span>
-          <div class="flex items-center mt-1">
-            <input data-k="total" type="number" step="0.1" placeholder="—" class="dataIn num-in w-full px-2.5 py-1.5 rounded-l-lg text-white font-data text-lg tnum" />
-            <span class="num-in border-l-0 rounded-r-lg px-2 py-1.5 text-[11px] text-mut2 font-data">yds</span>
-          </div>
-        </label>
-      </div>
-      <div class="px-4 pb-4">
-        <button id="applyData" class="w-full rounded-lg bg-flame px-3 py-2 text-[13px] font-semibold text-ink hover:bg-flame2 transition-colors">Process &amp; display on dashboard</button>
-      </div>
-    </div>
 
-    <!-- Telemetry display cards -->
-    <div class="rounded-2xl border border-line bg-panel/70 overflow-hidden">
-      <div class="px-4 py-3 border-b border-line flex items-center justify-between">
-        <div>
-          <div class="font-disp font-bold tracking-tight text-[15px]">SHOT REPORT</div>
-          <div class="text-[10px] text-mut2 tracking-[0.2em]">PREMIUM DASHBOARD</div>
+      <!-- Optimizer -->
+      <div class="telemetry-card rounded-lg p-4" style="border-color:rgba(255,90,0,.25);">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="material-symbols-outlined text-primary text-base">analytics</span>
+          <span class="mono text-[11px] text-txt uppercase tracking-wide">Optimizer Insight</span>
         </div>
-        <span id="reportTag" class="text-[10px] tracking-[0.18em] px-2 py-1 rounded bg-panel2 border border-line text-mut2">AWAITING</span>
+        <p id="optimizerText" class="text-[11px] leading-relaxed text-mut italic">Enter your numbers to get a tuning insight.</p>
       </div>
-      <!-- hero -->
-      <div class="px-4 pt-4 pb-3">
-        <div class="text-[10px] tracking-[0.22em] text-mut2">TOTAL DISTANCE</div>
-        <div class="flex items-end gap-1.5">
-          <span id="d_total" class="font-disp font-bold text-5xl leading-none tnum">—</span>
-          <span class="text-mut text-sm font-data mb-1.5">yds</span>
-        </div>
-        <div class="mt-2 h-px bg-line"></div>
-      </div>
-      <div id="cardGrid" class="grid grid-cols-2 gap-px bg-line/70"></div>
-    </div>
-  </aside>
+
+      <button id="applyShot" class="w-full rounded-lg bg-primary px-3 py-2.5 text-[13px] font-bold text-ink hover:bg-primary2 transition-colors flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-base">bookmark_add</span> Save shot
+      </button>
+    </section>
+  </div>
 </main>
 
-<footer class="max-w-[1500px] mx-auto px-4 sm:px-6 pb-8 pt-2 text-[11px] text-mut2">
-  Semi-manual workflow: you plot the launch and landing; the app fits a parabolic Bézier through them and rides a doughnut tracker along it, synced to the timeline. Dashboard values are exactly what you type — nothing is estimated from the video.
-</footer>
+<!-- apex handle (disabled, kept for layout) -->
+<div id="apexHandle" style="display:none;position:fixed;"></div>
 
 <script>
 (() => {
@@ -334,110 +261,143 @@
 
   // refs
   const dropZone=$('dropZone'), fileInput=$('fileInput'), browseBtn=$('browseBtn');
-  const stageWrap=$('stageWrap'), stage=$('stage');
+  const stageWrap=$('stageWrap'), stage=$('stage'), transport=$('transport');
   const video=$('video'), overlay=$('overlay'), octx=overlay.getContext('2d');
-  const modeHint=$('modeHint'), modeLed=$('modeLed'), frameTxt=$('frameTxt');
+  const modeHint=$('modeHint'), modeLed=$('modeLed'), frameTxt=$('frameTxt'), liveBadge=$('liveBadge');
   const playBtn=$('playBtn'), playIcon=$('playIcon'), pauseIcon=$('pauseIcon');
   const stepBack=$('stepBack'), stepFwd=$('stepFwd');
   const seek=$('seek'), tCur=$('tCur'), tDur=$('tDur');
-  const guideChk=$('guideChk'), playImpact=$('playImpact'), newClip=$('newClip');
-  const freezeChk=$('freezeChk');
-  freezeChk.addEventListener('change', ()=>{ parkAtEdge = freezeChk.checked; redraw(); });
+  const guideChk=$('guideChk'), freezeChk=$('freezeChk'), playImpact=$('playImpact');
   const apexHandle=$('apexHandle');
-  // SVG lives on body so no parent clips it
-  const guideSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-  guideSvg.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:50;overflow:visible;display:none;';
-  document.body.appendChild(guideSvg);
-  const guidePath = document.createElementNS('http://www.w3.org/2000/svg','path');
-  guidePath.setAttribute('fill','none');
-  guidePath.setAttribute('stroke','rgba(255,255,255,0.35)');
-  guidePath.setAttribute('stroke-width','1.5');
-  guidePath.setAttribute('stroke-dasharray','5,5');
-  guideSvg.appendChild(guidePath);
   const metaRes=$('metaRes'), fpsInput=$('fpsInput'), dot=$('dot'), statusTxt=$('statusTxt');
   const lpCount=$('lpCount'), ldState=$('ldState');
   const modeLaunch=$('modeLaunch'), modeLanding=$('modeLanding'), undoPt=$('undoPt');
   const buildBtn=$('buildBtn'), buildDot=$('buildDot'), resetCal=$('resetCal');
   const step1=$('step1'), step2=$('step2'), s2num=$('s2num');
-  const applyData=$('applyData'), reportTag=$('reportTag');
+  const offscreenFrame=$('offscreenFrame'), offscreenSet=$('offscreenSet'), offscreenHint=$('offscreenHint');
+  const telemetryGrid=$('telemetryGrid'), optimizerText=$('optimizerText'), applyShot=$('applyShot');
+  const shotList=$('shotList'), newSession=$('newSession');
+
+  // body-level guide SVG (so it can extend above the video)
+  const guideSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  guideSvg.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:45;overflow:visible;display:none;';
+  document.body.appendChild(guideSvg);
+  const guidePath=document.createElementNS('http://www.w3.org/2000/svg','path');
+  guidePath.setAttribute('fill','none'); guidePath.setAttribute('stroke','rgba(255,255,255,0.35)');
+  guidePath.setAttribute('stroke-width','1.5'); guidePath.setAttribute('stroke-dasharray','5,5');
+  guideSvg.appendChild(guidePath);
 
   // state
-  let fps = 30, fpsAuto = true;
-  let mode = 'idle';                 // idle | launch | landing
-  let launchPts = [];                // [{frame,t,fx,fy}]
-  let landingPt = null;              // {frame,t,fx,fy}
-  let arc = null;                    // tracking model {frame0,frame1,t0,t1,N,exVx,exVy,offscreen}
-  let parkAtEdge = false;            // park ring at exit point when off-screen (else it flies off and vanishes)
-  let dragApex = false;              // (apex handle currently disabled — guide matches physics exactly)
-  let curURL = null;                 // object URL of the loaded clip, revoked on replace
+  let fps=30, fpsAuto=true;
+  let mode='idle';                 // idle | launch | landing
+  let launchPts=[];                // [{frame,t,fx,fy}]
+  let landingPt=null;              // {frame,t,fx,fy} | {frame,t,offscreen:true}
+  let arc=null;                    // tracking model
+  let parkAtEdge=false;
+  let dragApex=false;
+  let curURL=null;
   let rvfcId=null, rafId=null;
-  const useRVFC = ('requestVideoFrameCallback' in HTMLVideoElement.prototype);
+  const useRVFC=('requestVideoFrameCallback' in HTMLVideoElement.prototype);
   let lastMediaTime=-1, fpsSamples=[];
+  let shots=[];
 
   const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
   const frameDur=()=>1/(fps||30);
-  const setStatus=(t,c)=>{ statusTxt.textContent=t; dot.className='h-2 w-2 rounded-full '+c; };
+  function setStatus(t,c){ statusTxt.textContent=t; statusTxt.style.color=c.txt; dot.className='w-2 h-2 rounded-full '+c.dot; }
+  const ST={ idle:{txt:'#ab897e',dot:'bg-mut2'}, load:{txt:'#ff7a33',dot:'bg-primary'}, track:{txt:'#ff7a33',dot:'bg-primary blip'}, ready:{txt:'#7dffa2',dot:'bg-green status-pulse'} };
 
-  // ---------- cards ----------
-  const CARDS=[
-    {k:'clubSpeed',label:'CLUB SPEED',unit:'mph',d:1},
-    {k:'ballSpeed',label:'BALL SPEED',unit:'mph',d:1},
-    {k:'smash',label:'SMASH FACTOR',unit:'',d:2},
-    {k:'launch',label:'LAUNCH ANGLE',unit:'°',d:1},
-    {k:'spin',label:'SPIN RATE',unit:'rpm',d:0},
-    {k:'carry',label:'CARRY',unit:'yds',d:1},
+  // ---------- telemetry ----------
+  const METRICS=[
+    {k:'clubSpeed',label:'Club Speed',unit:'MPH',max:140,target:114,tlabel:'PGA AVG',dec:1},
+    {k:'ballSpeed',label:'Ball Speed',unit:'MPH',max:200,target:170,tlabel:'TARGET',dec:1},
+    {k:'smash',label:'Smash Factor',unit:'',max:1.5,target:1.50,tlabel:'MAX',dec:2,computed:true},
+    {k:'launch',label:'Launch Angle',unit:'°',max:25,target:13,tlabel:'10–14',dec:1},
+    {k:'spin',label:'Spin Rate',unit:'RPM',max:5000,target:2400,tlabel:'TARGET',dec:0},
+    {k:'apex',label:'Apex',unit:'FT',max:160,target:100,tlabel:'AVG',dec:0},
+    {k:'carry',label:'Carry',unit:'YDS',max:350,target:300,tlabel:'TARGET',dec:0},
+    {k:'total',label:'Total',unit:'YDS',max:380,target:320,tlabel:'TARGET',dec:0},
   ];
-  (function buildCards(){
-    $('cardGrid').innerHTML = CARDS.map(c=>`
-      <div class="card-accent bg-panel px-4 py-3" data-card="${c.k}">
-        <div class="text-[9.5px] tracking-[0.16em] text-mut2">${c.label}</div>
-        <div class="flex items-end gap-1">
-          <span id="d_${c.k}" class="font-disp font-bold text-2xl leading-none tnum text-white">—</span>
-          <span class="text-[11px] text-mut font-data mb-0.5">${c.unit}</span>
-        </div>
-      </div>`).join('');
-  })();
+  telemetryGrid.innerHTML = METRICS.map(m=>`
+    <div class="telemetry-card rounded-lg p-3 flex flex-col gap-2" data-card="${m.k}">
+      <span class="mono text-[10px] text-mut2 uppercase">${m.label}</span>
+      <div class="flex items-baseline justify-between gap-1">
+        ${m.computed
+          ? `<span id="val_${m.k}" class="mono font-bold text-2xl text-txt tnum">—</span>`
+          : `<input id="in_${m.k}" data-k="${m.k}" type="number" step="0.1" placeholder="—" class="dataIn tile-in mono font-bold text-2xl text-txt tnum" />`}
+        <span class="mono text-[10px] text-mut2">${m.unit}</span>
+      </div>
+      <div class="h-1 w-full bg-line2 rounded-full overflow-hidden"><div id="bar_${m.k}" class="h-full bg-primary" style="width:0%"></div></div>
+      <div class="flex justify-between mono text-[8px] text-mut2"><span>OPTIMAL</span><span id="tg_${m.k}">${m.tlabel}: ${m.target}</span></div>
+    </div>`).join('');
 
-  function readInputs(){
+  function readData(){
     const o={};
-    document.querySelectorAll('.dataIn').forEach(el=>{
-      const v=parseFloat(el.value);
-      o[el.dataset.k]= isNaN(v)? null : v;
-    });
-    // smash derived strictly from the two entered speeds (not from video)
-    o.smash = (o.ballSpeed && o.clubSpeed) ? o.ballSpeed/o.clubSpeed : null;
+    document.querySelectorAll('.dataIn').forEach(el=>{ const v=parseFloat(el.value); o[el.dataset.k]=isNaN(v)?null:v; });
+    o.smash=(o.ballSpeed&&o.clubSpeed)?o.ballSpeed/o.clubSpeed:null;
     return o;
   }
-  function liveCards(){
-    const o=readInputs();
-    CARDS.forEach(c=>{
-      const el=$('d_'+c.k);
-      el.textContent = (o[c.k]==null) ? '—' : fmt(o[c.k],c.d);
+  function updateTiles(){
+    const o=readData();
+    METRICS.forEach(m=>{
+      const v=o[m.k];
+      if(m.computed){ const el=$('val_'+m.k); if(el) el.textContent=(v==null)?'—':fmt(v,m.dec); }
+      const bar=$('bar_'+m.k);
+      if(bar){
+        const pct=v==null?0:Math.max(0,Math.min(100,(v/m.max)*100));
+        bar.style.width=pct+'%';
+        const good = v!=null && v>=m.target*0.92;
+        bar.className='h-full '+(good?'bg-green':'bg-primary');
+      }
     });
-    $('d_total').textContent = (o.total==null)?'—':fmt(o.total,1);
+    optimizerText.textContent=insight(o);
   }
-  document.querySelectorAll('.dataIn').forEach(el=>el.addEventListener('input', liveCards));
+  function insight(o){
+    if(o.launch!=null && o.launch<10) return 'Launch angle is low — add loft or a touch more upward strike to carry it further.';
+    if(o.launch!=null && o.launch>15) return 'Launch is high — you may be ballooning it; check for excess spin or backed-up dynamic loft.';
+    if(o.smash!=null && o.smash<1.45) return 'Off-centre strike — centring contact would convert more club speed into ball speed.';
+    if(o.spin!=null && o.spin>3000) return 'Spin is high for a driver — lowering it adds carry and roll-out.';
+    if(o.spin!=null && o.spin<1800) return 'Spin is low — risk of a knuckly, inconsistent flight; a little more would stabilise it.';
+    if(o.ballSpeed!=null && o.clubSpeed!=null) return `Smash ${ (o.ballSpeed/o.clubSpeed).toFixed(2) } — dial launch to ~13° and spin to ~2400 rpm for max carry.`;
+    return 'Enter your numbers to get a tuning insight.';
+  }
+  document.querySelectorAll('.dataIn').forEach(el=>el.addEventListener('input',updateTiles));
 
   function animateNum(el,to,dec){
-    if(el==null) return;
-    const from=0, t0=performance.now(), dur=700;
-    const tick=(now)=>{ const k=Math.min(1,(now-t0)/dur); const e=1-Math.pow(1-k,3);
-      el.textContent=fmt(from+(to-from)*e,dec); if(k<1) requestAnimationFrame(tick); };
+    if(!el) return; const t0=performance.now(), dur=650;
+    const tick=now=>{ const k=Math.min(1,(now-t0)/dur), e=1-Math.pow(1-k,3); el.textContent=fmt(to*e,dec); if(k<1) requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
   }
-  applyData.addEventListener('click', ()=>{
-    const o=readInputs();
-    const any = CARDS.some(c=>o[c.k]!=null) || o.total!=null;
-    if(!any){ reportTag.textContent='ENTER DATA'; return; }
-    CARDS.forEach(c=>{
-      const cell=document.querySelector(`[data-card="${c.k}"]`);
-      if(o[c.k]!=null){ animateNum($('d_'+c.k),o[c.k],c.d); cell.classList.add('on'); }
-      else { $('d_'+c.k).textContent='—'; cell.classList.remove('on'); }
-    });
-    if(o.total!=null) animateNum($('d_total'),o.total,1); else $('d_total').textContent='—';
-    reportTag.textContent='DISPLAYED';
-    reportTag.className='text-[10px] tracking-[0.18em] px-2 py-1 rounded bg-flame/15 border border-flame/40 text-flame';
+
+  // ---------- shot history ----------
+  function renderShots(){
+    if(!shots.length){ shotList.innerHTML='<div class="p-3 text-center text-mut2 mono text-[10px] hidden md:block">No shots yet. Build a trajectory and hit <span class="text-primary">Save shot</span>.</div>'; return; }
+    shotList.innerHTML=shots.map((s,i)=>{
+      const live=i===shots.length-1;
+      const dist=s.data.total??s.data.carry??'—';
+      return `<div data-shot="${i}" class="cursor-pointer p-3 transition-all border-l-4 ${live?'border-primary bg-primary/10':'border-transparent hover:bg-card2'}">
+        <div class="flex justify-between items-start">
+          <span class="mono text-[10px] ${live?'text-primary':'text-mut2'}">SHOT ${String(s.n).padStart(2,'0')}</span>
+          <span class="mono text-[10px] text-mut2">${live?'LIVE':s.time}</span>
+        </div>
+        <div class="mono font-bold text-2xl ${live?'text-txt':'text-txt/60'} tnum">${dist}<span class="text-xs ml-1 text-mut2">${dist==='—'?'':'YDS'}</span></div>
+      </div>`;
+    }).reverse().join('');
+    shotList.querySelectorAll('[data-shot]').forEach(el=>el.addEventListener('click',()=>{
+      const s=shots[+el.dataset.shot]; if(!s) return;
+      METRICS.forEach(m=>{ if(m.computed) return; const inp=$('in_'+m.k); if(inp) inp.value=(s.data[m.k]==null?'':s.data[m.k]); });
+      updateTiles();
+    }));
+  }
+  applyShot.addEventListener('click',()=>{
+    const o=readData();
+    const any=METRICS.some(m=>o[m.k]!=null);
+    if(!any){ optimizerText.textContent='Enter at least one value before saving a shot.'; return; }
+    const sEl=$('val_smash'); if(sEl && o.smash!=null) animateNum(sEl,o.smash,2);
+    const n=(shots.length?shots[shots.length-1].n:0)+1;
+    shots.push({n,time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),data:{...o}});
+    renderShots();
   });
+  newSession.addEventListener('click',()=>doNewClip());
 
   // ---------- file ----------
   function openFile(file){ if(!file) return; if(curURL) URL.revokeObjectURL(curURL); curURL=URL.createObjectURL(file); video.src=curURL; video.load(); }
@@ -447,26 +407,17 @@
   ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev,(e)=>{e.preventDefault();dropZone.classList.add('drop-live');}));
   ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev,(e)=>{e.preventDefault();dropZone.classList.remove('drop-live');}));
   dropZone.addEventListener('drop',(e)=>{const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(f) openFile(f);});
-
   fpsInput.addEventListener('input',()=>{ const v=parseFloat(fpsInput.value); if(v>0){ fps=v; fpsAuto=false; } });
 
   video.addEventListener('loadedmetadata',()=>{
-    stage.style.aspectRatio=(video.videoWidth/video.videoHeight).toFixed(4);
-    dropZone.classList.add('hidden'); stageWrap.classList.remove('hidden');
+    dropZone.classList.add('hidden'); stageWrap.classList.remove('hidden'); transport.classList.remove('hidden');
     metaRes.textContent=video.videoWidth+'×'+video.videoHeight; metaRes.classList.remove('hidden');
     tDur.textContent=video.duration.toFixed(2);
-    resizeOverlay(); resetCalibration(); setStatus('LOADED','bg-flame'); setMode('launch'); startLoop();
+    resizeOverlay(); resetCalibration(); setStatus('LOADED',ST.load); setMode('launch'); startLoop();
   });
   video.addEventListener('play',()=>{ playIcon.style.display='none'; pauseIcon.style.display=''; });
   video.addEventListener('pause',()=>{ playIcon.style.display=''; pauseIcon.style.display='none'; });
-  function updateReadout(){
-    if(!video.duration) return;
-    seek.value=String(Math.round(video.currentTime/video.duration*1000));
-    tCur.textContent=video.currentTime.toFixed(2);
-    frameTxt.textContent='FRAME '+Math.round(video.currentTime*fps);
-  }
-  // timeupdate covers playback; seeked covers scrubbing/frame-stepping while paused
-  // (timeupdate does not fire reliably on programmatic seeks).
+  function updateReadout(){ if(!video.duration) return; seek.value=String(Math.round(video.currentTime/video.duration*1000)); tCur.textContent=video.currentTime.toFixed(2); frameTxt.textContent='FRAME '+Math.round(video.currentTime*fps); }
   video.addEventListener('timeupdate',updateReadout);
   video.addEventListener('seeked',updateReadout);
 
@@ -476,16 +427,11 @@
     octx.setTransform(dpr,0,0,dpr,0,0);
   }
   window.addEventListener('resize',resizeOverlay);
-
-  // The draw loop is driven by requestVideoFrameCallback, which only fires while
-  // the video is presenting new frames. While paused we must repaint manually so
-  // the overlay (markers, ring, guide path, endpoints) tracks layout changes and
-  // edits instead of freezing.
   function redraw(){ if(stageWrap.classList.contains('hidden')) return; draw(video.currentTime); }
-  window.addEventListener('resize', redraw);
-  window.addEventListener('scroll', redraw, true);
-  video.addEventListener('seeked', redraw);
-  video.addEventListener('pause', redraw);
+  window.addEventListener('resize',redraw);
+  window.addEventListener('scroll',redraw,true);
+  video.addEventListener('seeked',redraw);
+  video.addEventListener('pause',redraw);
 
   // ---------- transport ----------
   playBtn.addEventListener('click',()=>{ video.paused?video.play():video.pause(); });
@@ -494,8 +440,8 @@
   stepFwd.addEventListener('click',()=>{ video.pause(); video.currentTime=Math.min(video.duration,video.currentTime+frameDur()); });
   document.querySelectorAll('.rateBtn').forEach(b=>b.addEventListener('click',()=>{
     video.playbackRate=parseFloat(b.dataset.rate);
-    document.querySelectorAll('.rateBtn').forEach(x=>x.className='rateBtn px-2 py-1 rounded text-[11px] font-data tracking-wide text-mut hover:text-white');
-    b.className='rateBtn px-2 py-1 rounded text-[11px] font-data tracking-wide text-white bg-panel2 border border-line';
+    document.querySelectorAll('.rateBtn').forEach(x=>x.className='rateBtn px-2 py-1 rounded mono text-[11px] text-mut hover:text-txt border border-transparent');
+    b.className='rateBtn px-2 py-1 rounded mono text-[11px] text-txt bg-card2 border border-line';
   }));
   window.addEventListener('keydown',(e)=>{
     if(stageWrap.classList.contains('hidden')) return;
@@ -505,46 +451,39 @@
     else if(e.key===' '){ e.preventDefault(); playBtn.click(); }
   });
   playImpact.addEventListener('click',()=>{ if(arc){ video.currentTime=Math.max(0,arc.t0-0.05); video.play(); }});
-  newClip.addEventListener('click',()=>{
-    stopLoop(); stageWrap.classList.add('hidden'); dropZone.classList.remove('hidden');
+  freezeChk.addEventListener('change',()=>{ parkAtEdge=freezeChk.checked; redraw(); });
+
+  function doNewClip(){
+    stopLoop(); stageWrap.classList.add('hidden'); transport.classList.add('hidden'); dropZone.classList.remove('hidden');
     video.removeAttribute('src'); video.load(); fileInput.value='';
     if(curURL){ URL.revokeObjectURL(curURL); curURL=null; }
-    resetCalibration(); setStatus('IDLE','bg-mut2');
-  });
+    resetCalibration(); setStatus('IDLE',ST.idle);
+  }
 
   // ---------- calibration ----------
   function setMode(m){
     mode=m;
-    modeLaunch.className = m==='launch'
-      ? 'flex-1 rounded-lg bg-flame px-3 py-1.5 text-[13px] font-semibold text-ink hover:bg-flame2 transition-colors'
-      : 'flex-1 rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] font-semibold text-white hover:border-flame/60 transition-colors';
-    if(landingPt || launchPts.length>=2){ modeLanding.disabled=false; }
-    modeLanding.className = m==='landing'
-      ? 'w-full mt-2.5 rounded-lg bg-flame px-3 py-1.5 text-[13px] font-semibold text-ink hover:bg-flame2 transition-colors'
-      : 'w-full mt-2.5 rounded-lg bg-panel2 border border-line px-3 py-1.5 text-[13px] font-semibold text-white hover:border-flame/60 transition-colors disabled:opacity-40';
+    modeLaunch.className=m==='launch'
+      ? 'flex-1 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-bold text-ink hover:bg-primary2 transition-colors'
+      : 'flex-1 rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] font-bold text-txt hover:border-primary/60 transition-colors';
+    if(landingPt || launchPts.length>=2) modeLanding.disabled=false;
+    modeLanding.className=m==='landing'
+      ? 'w-full mt-2.5 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-semibold text-ink hover:bg-primary2 transition-colors'
+      : 'w-full mt-2.5 rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] font-semibold text-txt hover:border-primary/60 transition-colors disabled:opacity-40';
     modeHint.classList.remove('hidden');
-    if(m==='launch') modeHint.innerHTML='Step to impact, then <span class="text-white font-semibold">click the ball</span> on as many frames as you like';
-    else if(m==='landing') modeHint.innerHTML='Scrub to landing, then <span class="text-white font-semibold">click once</span> to set target';
+    if(m==='launch') modeHint.innerHTML='Step to impact, then <span class="text-txt font-semibold">click the ball</span> on consecutive frames';
+    else if(m==='landing') modeHint.innerHTML='Scrub to landing, then <span class="text-txt font-semibold">click once</span> to set target';
     else modeHint.classList.add('hidden');
+    liveBadge.classList.toggle('hidden', !(m==='idle' && arc));
     if(m!=='idle') video.pause();
   }
   modeLaunch.addEventListener('click',()=>setMode('launch'));
   modeLanding.addEventListener('click',()=>{ if(!modeLanding.disabled) setMode('landing'); });
-
-  // Off-screen landing: user types the frame number, we synthesise a landing point
-  // positioned at the edge of frame (fx=1.05 or wherever the ball exited) with t derived
-  // from the frame number.  The physics solver extrapolates freely beyond [0,1].
-  const offscreenFrame=$('offscreenFrame'), offscreenSet=$('offscreenSet'), offscreenHint=$('offscreenHint');
   offscreenSet.addEventListener('click',()=>{
     const f=parseInt(offscreenFrame.value,10);
     if(isNaN(f)||f<0) return;
-    if(launchPts.length>=2 && f<=launchPts[launchPts.length-1].frame) return; // landing must be after launch
-    // For an off-screen landing we only know WHEN the ball lands, not where on
-    // screen. buildArc() derives gravity from this frame using the launch-point
-    // velocity fit, so the ring rides the real parabola off the edge and vanishes —
-    // no fabricated landing position needed (the old linear estimate was wrong and
-    // fed the per-axis clamp that caused the ring to slide along the top edge).
-    landingPt={frame:f, t:f/fps, offscreen:true};
+    if(launchPts.length>=2 && f<=launchPts[launchPts.length-1].frame) return;
+    landingPt={frame:f,t:f/fps,offscreen:true};
     offscreenHint.classList.remove('hidden');
     refreshCalUI();
   });
@@ -557,300 +496,189 @@
 
   function resetCalibration(){
     launchPts=[]; landingPt=null; arc=null; setMode(video.src?'launch':'idle');
-    refreshCalUI();
-    octx.clearRect(0,0,overlay.width,overlay.height);
+    refreshCalUI(); octx.clearRect(0,0,overlay.width,overlay.height);
   }
   function refreshCalUI(){
-    lpCount.textContent = launchPts.length+' pt'+(launchPts.length===1?'':'s');
-    ldState.textContent = landingPt? ('frame '+landingPt.frame) : 'unset';
-    ldState.className = 'ml-auto font-data text-[12px] tnum '+(landingPt?'text-flame':'text-mut2');
-    const haveLaunch = launchPts.length>=2;
-    const offscreenSet=$('offscreenSet');
-    if(offscreenSet) offscreenSet.disabled=!haveLaunch;
-    modeLanding.disabled = !haveLaunch;
-    step2.className = haveLaunch ? 'rounded-xl border border-flame/50 bg-flame/[0.06] p-3 transition-colors'
-                                 : 'rounded-xl border border-line bg-panel2/40 p-3 transition-colors';
-    s2num.className = haveLaunch ? 'h-5 w-5 grid place-items-center rounded-full bg-flame text-ink text-[11px] font-bold'
-                                 : 'h-5 w-5 grid place-items-center rounded-full bg-panel2 border border-line text-mut text-[11px] font-bold';
-    const ready = haveLaunch && landingPt;
-    buildBtn.disabled = !ready;
-    buildDot.className = 'h-2 w-2 rounded-full '+(ready?'bg-flame blip':'bg-mut2');
-    playImpact.disabled = !arc;
+    lpCount.textContent=launchPts.length+' pt'+(launchPts.length===1?'':'s');
+    ldState.textContent=landingPt?('frame '+landingPt.frame):'unset';
+    ldState.className='ml-auto mono text-[12px] tnum '+(landingPt?'text-primary':'text-mut2');
+    const haveLaunch=launchPts.length>=2;
+    offscreenSet.disabled=!haveLaunch;
+    modeLanding.disabled=!haveLaunch;
+    step2.style.borderColor=haveLaunch?'rgba(255,90,0,.5)':'#2a2a2a';
+    s2num.className=haveLaunch
+      ? 'h-5 w-5 grid place-items-center rounded-full bg-primary text-ink text-[11px] font-bold'
+      : 'h-5 w-5 grid place-items-center rounded-full bg-card2 border border-line text-mut text-[11px] font-bold';
+    const ready=haveLaunch && landingPt;
+    buildBtn.disabled=!ready;
+    buildDot.className='h-2 w-2 rounded-full '+(ready?'bg-primary blip':'bg-mut2');
+    playImpact.disabled=!arc;
     if(arc){ playImpact.style.opacity='1'; playImpact.style.pointerEvents=''; }
     else { playImpact.style.opacity='0.4'; playImpact.style.pointerEvents='none'; }
     redraw();
   }
 
   // click to plot
-  // ---- Apex drag — on the DOM handle so it can go above the video ----
-  apexHandle.addEventListener('pointerdown',(e)=>{
-    if(!arc) return;
-    dragApex=true;
-    apexHandle.setPointerCapture(e.pointerId);
-    apexHandle.style.cursor='grabbing';
-    e.stopPropagation();
-  });
-  window.addEventListener('pointermove',(e)=>{
-    if(!dragApex || !arc) return;
-    const r=stage.getBoundingClientRect();
-    // x clamped to [0,1], y completely free — negative = above video top
-    const mx=(e.clientX-r.left)/r.width;
-    const my=(e.clientY-r.top)/r.height;
-    arc.bezC = { x: Math.max(0,Math.min(1,mx)), y: my };
-  });
-  window.addEventListener('pointerup',(e)=>{
-    if(dragApex){ dragApex=false; apexHandle.style.cursor='grab'; }
-  });
-
   stage.addEventListener('click',(e)=>{
     if(stageWrap.classList.contains('hidden')) return;
-    if(dragApex) return;  // swallow click that ended a drag
+    if(dragApex) return;
     if(mode!=='launch' && mode!=='landing') return;
     const r=stage.getBoundingClientRect();
     const fx=(e.clientX-r.left)/r.width, fy=(e.clientY-r.top)/r.height;
-    const t=video.currentTime, frame=Math.round(t*fps);  // must match draw()'s Math.round(mediaTime*fps)
+    const t=video.currentTime, frame=Math.round(t*fps);
     const pt={frame,t,fx,fy};
     if(mode==='launch'){
-      // replace if same frame clicked again, else append — no limit
       const i=launchPts.findIndex(p=>p.frame===frame);
       if(i>=0) launchPts[i]=pt; else launchPts.push(pt);
       launchPts.sort((a,b)=>a.frame-b.frame);
-      // auto-advance one frame to make rapid clicking easy
       video.currentTime=Math.min(video.duration,t+frameDur());
-    } else {
-      landingPt=pt;
-    }
+    } else { landingPt=pt; }
+    setStatus('TRACKING',ST.track);
     refreshCalUI();
   });
 
-  // ---------- build trajectory — point-to-point tracking ----------
-  //
-  // The ring TRACKS the ball through the exact points you click: it passes through
-  // every launch point with NO curve smoothing (a fitted parabola pulls the ring
-  // off the ball at launch, where precision matters most). Between clicks it
-  // interpolates linearly. PAST the last click it rides a real ballistic arc —
-  // vertical velocity carries over from the tracking, then gravity curves it
-  // smoothly over the apex and accelerates the descent down to the landing (no kink
-  // at the top, no constant-speed crawl). Coordinates: fx/fy in [0,1], y is DOWN.
-
-  buildBtn.addEventListener('click', buildArc);
-
-  function buildArc() {
-    if (launchPts.length < 2 || !landingPt) return;
-
-    const first = launchPts[0];
-    // Extrapolation velocity = the LAST tracked segment (the direction the ball is
-    // actually heading as it leaves frame). Used only past the last clicked point.
-    // Launch velocity from the LAST tracked segment — the ball's actual heading as
-    // it leaves the clicked points. This seeds the gravity arc that follows.
-    const a = launchPts[launchPts.length - 2], b = launchPts[launchPts.length - 1];
-    const segDf = Math.max(1, b.frame - a.frame);
-    const exVx = (b.fx - a.fx) / segDf;
-    const exVy = (b.fy - a.fy) / segDf;
-
-    // After the last clicked point the ring rides a real ballistic arc:
-    //   x(τ) = xL + cvx·τ                  constant horizontal velocity
-    //   y(τ) = yL + exVy·τ + ½·g·τ²        vertical velocity continues from tracking,
-    //                                      then GRAVITY curves it smoothly over the
-    //                                      apex and accelerates the descent.
-    // Continuing exVy through the handoff keeps vertical motion continuous, so there
-    // is no kink/reversal at the top — that kink was the "bounce". Gravity (g>0) is
-    // what makes the descent speed up instead of crawling down a straight line.
-    const xL = b.fx, yL = b.fy, fL = b.frame;
-    const tauLand = Math.max(1, landingPt.frame - fL);
-    let cvx, g;
-    if (landingPt.offscreen) {
-      cvx = exVx;                                  // keep heading, no on-screen landing
-      g   = -2 * exVy / tauLand;                   // symmetric arc (apex then return)
-    } else {
-      cvx = (landingPt.fx - xL) / tauLand;         // hit the clicked landing x …
-      g   = 2 * (landingPt.fy - yL - exVy * tauLand) / (tauLand * tauLand); // … and y
-    }
-    if (!(g > 0)) g = 0.0008;                       // guard: always fall at least a little
-
-    arc = {
-      frame0: first.frame,
-      frame1: landingPt.frame,
-      t0: first.t,
-      t1: landingPt.t,
-      N: Math.max(1, landingPt.frame - first.frame),
-      // ballistic continuation, valid for absF > fL
-      contFrame: fL, contX: xL, contY: yL, contVx: cvx, contVy: exVy, contG: g,
-      offscreen: !!landingPt.offscreen,
-    };
-
+  // ---------- build trajectory: track clicks exactly, ballistic arc after ----------
+  buildBtn.addEventListener('click',buildArc);
+  function buildArc(){
+    if(launchPts.length<2 || !landingPt) return;
+    const first=launchPts[0];
+    const a=launchPts[launchPts.length-2], b=launchPts[launchPts.length-1];
+    const segDf=Math.max(1,b.frame-a.frame);
+    const exVx=(b.fx-a.fx)/segDf, exVy=(b.fy-a.fy)/segDf;
+    const xL=b.fx, yL=b.fy, fL=b.frame;
+    const tauLand=Math.max(1,landingPt.frame-fL);
+    let cvx,g;
+    if(landingPt.offscreen){ cvx=exVx; g=-2*exVy/tauLand; }
+    else { cvx=(landingPt.fx-xL)/tauLand; g=2*(landingPt.fy-yL-exVy*tauLand)/(tauLand*tauLand); }
+    if(!(g>0)) g=0.0008;
+    arc={ frame0:first.frame, frame1:landingPt.frame, t0:first.t, t1:landingPt.t,
+          N:Math.max(1,landingPt.frame-first.frame),
+          contFrame:fL, contX:xL, contY:yL, contVx:cvx, contVy:exVy, contG:g,
+          offscreen:!!landingPt.offscreen };
     setMode('idle');
-    buildDot.className = 'h-2 w-2 rounded-full bg-flame';
-    setStatus('ARC READY', 'bg-flame');
-    reportTag.textContent = readInputs().total != null ? 'DISPLAYED' : 'ARC READY';
-    playImpact.disabled = false;
-    playImpact.style.opacity = '1';
-    playImpact.style.pointerEvents = '';
-    video.currentTime = Math.max(0, first.t);
+    buildDot.className='h-2 w-2 rounded-full bg-green';
+    setStatus('ARC READY',ST.ready);
+    liveBadge.classList.remove('hidden');
+    playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
+    video.currentTime=Math.max(0,first.t);
   }
 
-  // Ring position at a (fractional) absolute frame:
-  //  • through the tracked launch points → exact linear interpolation (no smoothing)
-  //  • past the last launch point        → ballistic gravity arc (smooth apex + fall)
-  function trackPos(absF) {
-    const pts = launchPts;
-    const last = pts[pts.length - 1];
-    if (absF <= last.frame) {
-      let lo = pts[0], hi = pts[pts.length - 1];
-      for (const p of pts) { if (p.frame <= absF) lo = p; if (p.frame >= absF) { hi = p; break; } }
-      if (hi.frame === lo.frame) return { x: lo.fx, y: lo.fy };
-      const a = (absF - lo.frame) / (hi.frame - lo.frame);
-      return { x: lo.fx + a * (hi.fx - lo.fx), y: lo.fy + a * (hi.fy - lo.fy) };
+  // Ring position at fractional absolute frame
+  function trackPos(absF){
+    const pts=launchPts; const last=pts[pts.length-1];
+    if(absF<=last.frame){
+      let lo=pts[0], hi=pts[pts.length-1];
+      for(const p of pts){ if(p.frame<=absF) lo=p; if(p.frame>=absF){ hi=p; break; } }
+      if(hi.frame===lo.frame) return {x:lo.fx,y:lo.fy};
+      const a=(absF-lo.frame)/(hi.frame-lo.frame);
+      return {x:lo.fx+a*(hi.fx-lo.fx), y:lo.fy+a*(hi.fy-lo.fy)};
     }
-    const tau = absF - arc.contFrame;
-    return {
-      x: arc.contX + arc.contVx * tau,
-      y: arc.contY + arc.contVy * tau + 0.5 * arc.contG * tau * tau,
-    };
+    const tau=absF-arc.contFrame;
+    return { x:arc.contX+arc.contVx*tau, y:arc.contY+arc.contVy*tau+0.5*arc.contG*tau*tau };
   }
 
   // ---------- loop + draw ----------
   function startLoop(){
     stopLoop();
-    if(useRVFC){
-      const cb=(now,meta)=>{ onFrame(meta&&typeof meta.mediaTime==='number'?meta.mediaTime:video.currentTime); rvfcId=video.requestVideoFrameCallback(cb); };
-      rvfcId=video.requestVideoFrameCallback(cb);
-    } else {
-      const cb=()=>{ onFrame(video.currentTime); rafId=requestAnimationFrame(cb); };
-      rafId=requestAnimationFrame(cb);
-    }
+    if(useRVFC){ const cb=(now,meta)=>{ onFrame(meta&&typeof meta.mediaTime==='number'?meta.mediaTime:video.currentTime); rvfcId=video.requestVideoFrameCallback(cb); }; rvfcId=video.requestVideoFrameCallback(cb); }
+    else { const cb=()=>{ onFrame(video.currentTime); rafId=requestAnimationFrame(cb); }; rafId=requestAnimationFrame(cb); }
   }
-  function stopLoop(){
-    if(rvfcId&&useRVFC){ try{video.cancelVideoFrameCallback(rvfcId);}catch(e){} rvfcId=null; }
-    if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
-  }
+  function stopLoop(){ if(rvfcId&&useRVFC){ try{video.cancelVideoFrameCallback(rvfcId);}catch(e){} rvfcId=null; } if(rafId){ cancelAnimationFrame(rafId); rafId=null; } }
   function onFrame(mediaTime){
-    if(fpsAuto && lastMediaTime>=0){
-      const d=mediaTime-lastMediaTime;
-      if(d>0.0005 && d<0.2){
-        fpsSamples.push(1/d); if(fpsSamples.length>40) fpsSamples.shift();
-        const s=[...fpsSamples].sort((a,b)=>a-b); const med=s[Math.floor(s.length/2)];
-        fps=Math.round(med); fpsInput.value=String(fps);
-      }
-    }
-    lastMediaTime=mediaTime;
-    draw(mediaTime);
+    if(fpsAuto && lastMediaTime>=0){ const d=mediaTime-lastMediaTime;
+      if(d>0.0005 && d<0.2){ fpsSamples.push(1/d); if(fpsSamples.length>40) fpsSamples.shift(); const s=[...fpsSamples].sort((a,b)=>a-b); fps=Math.round(s[Math.floor(s.length/2)]); fpsInput.value=String(fps); } }
+    lastMediaTime=mediaTime; draw(mediaTime);
   }
 
   function draw(mediaTime){
-    const r=stage.getBoundingClientRect();
-    const W=r.width, H=r.height;
+    const r=stage.getBoundingClientRect(); const W=r.width, H=r.height;
     octx.clearRect(0,0,overlay.width,overlay.height);
 
-    // calibration markers (only while plotting, never during playback)
+    // calibration markers (while plotting)
     if(!arc){
-      launchPts.forEach((p,i)=>drawMarker(p.fx*W,p.fy*H,String(i+1),'#FF6A1A'));
-      if(landingPt && !landingPt.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'L','#39B7FF');
+      launchPts.forEach((p,i)=>drawMarker(p.fx*W,p.fy*H,String(i+1),'#ff5a00'));
+      if(landingPt && !landingPt.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'L','#00e676');
       return;
     }
 
-    // Guide path (paused-only planning aid) — drawn in a body-level SVG so it can
-    // extend above the video top edge. It traces the SAME path the ring rides:
-    // straight segments through the clicked launch points, then the gravity arc.
-    const showGuide = guideChk.checked && arc && video.paused;
-    apexHandle.style.display='none';   // apex handle disabled
-    if(!showGuide){
-      guideSvg.style.display='none';
-    } else {
+    // guide (paused only)
+    const showGuide=guideChk.checked && arc && video.paused;
+    apexHandle.style.display='none';
+    if(!showGuide){ guideSvg.style.display='none'; }
+    else {
       guideSvg.style.display='';
-      const stageR = stage.getBoundingClientRect();
-      const toVX = fx => stageR.left + fx * stageR.width;
-      const toVY = fy => stageR.top  + fy * stageR.height;
-      let d = 'M '+toVX(launchPts[0].fx)+','+toVY(launchPts[0].fy);
-      for(let i=1;i<launchPts.length;i++) d += ' L '+toVX(launchPts[i].fx)+','+toVY(launchPts[i].fy);
-      // sample the ballistic continuation so the dashed guide shows the curved arc
-      const fLast = launchPts[launchPts.length-1].frame, steps = 28;
-      for(let k=1;k<=steps;k++){
-        const q = trackPos(fLast + (arc.frame1 - fLast) * (k/steps));
-        d += ' L '+toVX(q.x)+','+toVY(q.y);
-      }
-      guidePath.setAttribute('d', d);
-      launchPts.forEach(p=> drawMarker(p.fx*W, p.fy*H, '', '#FF6A1A'));
-      if(!arc.offscreen) drawMarker(landingPt.fx*W, landingPt.fy*H, '', '#39B7FF');
+      const sR=stage.getBoundingClientRect();
+      const vx=fx=>sR.left+fx*sR.width, vy=fy=>sR.top+fy*sR.height;
+      let d='M '+vx(launchPts[0].fx)+','+vy(launchPts[0].fy);
+      for(let i=1;i<launchPts.length;i++) d+=' L '+vx(launchPts[i].fx)+','+vy(launchPts[i].fy);
+      const fLast=launchPts[launchPts.length-1].frame, steps=28;
+      for(let k=1;k<=steps;k++){ const q=trackPos(fLast+(arc.frame1-fLast)*(k/steps)); d+=' L '+vx(q.x)+','+vy(q.y); }
+      guidePath.setAttribute('d',d);
+      launchPts.forEach(p=>drawMarker(p.fx*W,p.fy*H,'','#ff5a00'));
+      if(!arc.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'','#00e676');
     }
 
-    const t = (mediaTime !== undefined) ? mediaTime : video.currentTime;
-    // Fractional frames: motion is smooth between frames, yet the ring sits exactly
-    // on each clicked point at its own frame (no smoothing of the tracked path).
-    const tau  = (t - arc.t0) * fps;
-    const absF = arc.frame0 + tau;
-    if(absF < arc.frame0 - 1e-6 || absF > arc.frame1 + 1e-6) return;  // launch → landing only
+    const t=(mediaTime!==undefined)?mediaTime:video.currentTime;
+    const tau=(t-arc.t0)*fps;
+    const absF=arc.frame0+tau;
+    if(absF<arc.frame0-1e-6 || absF>arc.frame1+1e-6) return;
 
-    // Track through the clicked points; extrapolate past the last one.
-    const pos = trackPos(absF);
-    let fx = pos.x, fy = pos.y;
+    // --- tracer trail: glowing path travelled so far (frame0 -> current) ---
+    const headF=Math.min(absF,arc.frame1);
+    const trail=[];
+    for(let f=arc.frame0; f<=headF; f+=0.5){ const q=trackPos(f); trail.push([q.x*W,q.y*H]); }
+    if(trail.length>1){
+      octx.save();
+      octx.lineJoin='round'; octx.lineCap='round';
+      octx.shadowColor='rgba(255,90,0,0.85)'; octx.shadowBlur=10;
+      octx.strokeStyle='#ff5a00'; octx.lineWidth=3;
+      const n=trail.length-1;
+      for(let i=1;i<trail.length;i++){
+        octx.globalAlpha=0.18+0.82*(i/n);
+        octx.beginPath(); octx.moveTo(trail[i-1][0],trail[i-1][1]); octx.lineTo(trail[i][0],trail[i][1]); octx.stroke();
+      }
+      octx.globalAlpha=1; octx.restore();
+    }
+    // impact point (white) at launch
+    const ip=trackPos(arc.frame0);
+    if(ip.x>=0&&ip.x<=1&&ip.y>=0&&ip.y<=1){ octx.save(); octx.fillStyle='#fff'; octx.shadowColor='rgba(255,255,255,.8)'; octx.shadowBlur=8; octx.beginPath(); octx.arc(ip.x*W,ip.y*H,3,0,Math.PI*2); octx.fill(); octx.restore(); }
 
-    // Allow the ring to leave the frame — NEVER clamp per-axis (that pinned it to
-    // the edge and made it slide/"bounce"). Default: it flies off and vanishes.
-    // Optional ("Park ring at exit edge"): hold it at the last on-screen point.
-    if(fx < 0 || fx > 1 || fy < 0 || fy > 1){
+    // --- ring at head ---
+    const pos=trackPos(absF);
+    let fx=pos.x, fy=pos.y;
+    if(fx<0||fx>1||fy<0||fy>1){
       if(parkAtEdge){
         let pk=null;
-        for(let s=arc.frame0; s<=absF; s+=0.5){
-          const q=trackPos(s);
-          if(q.x>=0 && q.x<=1 && q.y>=0 && q.y<=1) pk=q; else break;
-        }
-        if(!pk) return;
-        fx=pk.x; fy=pk.y;
-      } else {
-        return;   // ball has left the frame — ring follows it off-canvas and disappears
-      }
+        for(let s=arc.frame0; s<=absF; s+=0.5){ const q=trackPos(s); if(q.x>=0&&q.x<=1&&q.y>=0&&q.y<=1) pk=q; else break; }
+        if(!pk) return; fx=pk.x; fy=pk.y;
+      } else { return; }
     }
-    drawRing(fx * W, fy * H);
+    drawRing(fx*W,fy*H);
   }
 
   function drawMarker(x,y,label,color){
-    octx.save();
-    octx.translate(x,y);
-    octx.beginPath(); octx.arc(0,0,7,0,Math.PI*2);
-    octx.strokeStyle=color.trim(); octx.lineWidth=2; octx.stroke();
-    octx.beginPath(); octx.arc(0,0,1.6,0,Math.PI*2); octx.fillStyle=color.trim(); octx.fill();
-    if(label){ octx.fillStyle='#fff'; octx.font='600 10px Inter, sans-serif'; octx.textAlign='center'; octx.fillText(label,0,-11); }
+    octx.save(); octx.translate(x,y);
+    octx.beginPath(); octx.arc(0,0,7,0,Math.PI*2); octx.strokeStyle=color; octx.lineWidth=2; octx.stroke();
+    octx.beginPath(); octx.arc(0,0,1.6,0,Math.PI*2); octx.fillStyle=color; octx.fill();
+    if(label){ octx.fillStyle='#fff'; octx.font='700 10px Inter, sans-serif'; octx.textAlign='center'; octx.fillText(label,0,-11); }
+    octx.restore();
+  }
+  function drawRing(x,y){
+    const stageW=stage.getBoundingClientRect().width;
+    const R=stageW*0.005+2;
+    octx.save(); octx.translate(x,y);
+    octx.shadowColor='rgba(255,90,0,0.9)'; octx.shadowBlur=8;
+    octx.beginPath(); octx.arc(0,0,R,0,Math.PI*2); octx.strokeStyle='#ff5a00'; octx.lineWidth=2; octx.stroke();
     octx.restore();
   }
 
-  // Trackman-style ring: tight, thin, dark — grips the ball like the real thing.
-  //
-  // Sizing rationale from visual analysis of the reference footage:
-  //   • At source video width 888 px the ring radius is ~10–12 px screen pixels.
-  //   • That puts it roughly 1–2 px larger than the ball's own pixel radius.
-  //   • It is NOT proportional to the viewport — it stays small and precise.
-  //
-  // The overlay canvas is drawn at device-pixel-ratio scale (set in resizeOverlay),
-  // so we read the stage's CSS width (r.width) to get the logical display size and
-  // derive a DPR-aware fixed radius.  A ball on screen at typical golf-shot distance
-  // from a phone camera occupies roughly 0.8–1.2 % of the frame width — we add a
-  // ~3 px clearance on each side to get the ring radius.
-  function drawRing(x, y) {
-    // Stage CSS width in logical pixels.
-    // The canvas transform already scales by DPR (set in resizeOverlay),
-    // so x/y/R are all in logical CSS pixels here — do NOT multiply by DPR.
-    const stageW = stage.getBoundingClientRect().width;
+  // apex handle drag (inert — handle hidden)
+  window.addEventListener('pointermove',()=>{});
+  window.addEventListener('pointerup',()=>{ if(dragApex){ dragApex=false; } });
 
-    // Golf ball at typical phone-camera distance ≈ 0.5 % of frame width.
-    // Add ~2 px clearance so the ring sits just outside the ball edge.
-    const ballR = stageW * 0.005;
-    const R     = ballR + 2;
-
-    octx.save();
-    octx.translate(x, y);
-
-    // ── Orange ring ───────────────────────────────────────────────────────
-    octx.beginPath();
-    octx.arc(0, 0, R, 0, Math.PI * 2);
-    octx.strokeStyle = '#FF6A1A';
-    octx.lineWidth   = 2;
-    octx.stroke();
-
-    octx.restore();
-  }
-
-  setStatus('IDLE','bg-mut2');
+  setStatus('IDLE',ST.idle);
+  updateTiles();
+  renderShots();
 })();
 </script>
 </body>
