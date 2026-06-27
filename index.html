@@ -177,7 +177,13 @@
           <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
             <input id="freezeChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Park at edge
           </label>
-          <button id="playImpact" class="ml-auto rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-mut hover:text-txt transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
+          <div class="ml-auto flex items-center gap-2">
+            <span id="exportStatus" class="mono text-[11px] text-primary hidden"></span>
+            <button id="playImpact" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-mut hover:text-txt transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
+            <button id="exportBtn" class="rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[12px] text-primary hover:bg-primary/25 transition-colors disabled:opacity-40 flex items-center gap-1.5" disabled>
+              <span class="material-symbols-outlined text-base">download</span>Export clip
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -268,6 +274,7 @@
   const stepBack=$('stepBack'), stepFwd=$('stepFwd');
   const seek=$('seek'), tCur=$('tCur'), tDur=$('tDur');
   const guideChk=$('guideChk'), freezeChk=$('freezeChk'), playImpact=$('playImpact');
+  const exportBtn=$('exportBtn'), exportStatus=$('exportStatus');
   const apexHandle=$('apexHandle');
   const metaRes=$('metaRes'), fpsInput=$('fpsInput'), dot=$('dot'), statusTxt=$('statusTxt');
   const lpCount=$('lpCount'), ldState=$('ldState');
@@ -515,6 +522,7 @@
     playImpact.disabled=!arc;
     if(arc){ playImpact.style.opacity='1'; playImpact.style.pointerEvents=''; }
     else { playImpact.style.opacity='0.4'; playImpact.style.pointerEvents='none'; }
+    exportBtn.disabled=!arc;
     redraw();
   }
 
@@ -560,6 +568,7 @@
     setStatus('ARC READY',ST.ready);
     liveBadge.classList.remove('hidden');
     playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
+    exportBtn.disabled=false;
     video.currentTime=Math.max(0,first.t);
   }
 
@@ -619,21 +628,26 @@
     }
 
     const t=(mediaTime!==undefined)?mediaTime:video.currentTime;
-    const tau=(t-arc.t0)*fps;
-    const absF=arc.frame0+tau;
-    if(absF<arc.frame0-1e-6 || absF>arc.frame1+1e-6) return;
-
     // --- doughnut ring at the ball's current position (no trail) ---
-    const pos=trackPos(absF);
-    let fx=pos.x, fy=pos.y;
+    const p=ringAt((arc.frame0)+(t-arc.t0)*fps);
+    if(p) drawRing(p.x*W,p.y*H);
+  }
+
+  // Ring screen position (normalised 0..1) at a fractional absolute frame, applying
+  // the launch→landing window, off-screen rule and optional park. null = not drawn.
+  function ringAt(absF){
+    if(!arc) return null;
+    if(absF<arc.frame0-1e-6 || absF>arc.frame1+1e-6) return null;
+    const pos=trackPos(absF); let fx=pos.x, fy=pos.y;
     if(fx<0||fx>1||fy<0||fy>1){
       if(parkAtEdge){
         let pk=null;
         for(let s=arc.frame0; s<=absF; s+=0.5){ const q=trackPos(s); if(q.x>=0&&q.x<=1&&q.y>=0&&q.y<=1) pk=q; else break; }
-        if(!pk) return; fx=pk.x; fy=pk.y;
-      } else { return; }
+        if(!pk) return null; return pk;
+      }
+      return null;
     }
-    drawRing(fx*W,fy*H);
+    return {x:fx,y:fy};
   }
 
   function drawMarker(x,y,label,color){
@@ -650,6 +664,83 @@
     octx.shadowColor='rgba(255,90,0,0.9)'; octx.shadowBlur=8;
     octx.beginPath(); octx.arc(0,0,R,0,Math.PI*2); octx.strokeStyle='#ff5a00'; octx.lineWidth=2; octx.stroke();
     octx.restore();
+  }
+
+  // ---------- export: composite video + ring to a downloadable clip ----------
+  let exporting=false;
+  const once=(el,ev)=>new Promise(res=>el.addEventListener(ev,res,{once:true}));
+  function setExportUI(state,pct){
+    if(state==='rec'){ exportStatus.classList.remove('hidden'); exportStatus.textContent='REC '+(pct||0)+'%'; exportBtn.disabled=true; }
+    else if(state==='save'){ exportStatus.classList.remove('hidden'); exportStatus.textContent='SAVING…'; }
+    else { exportStatus.classList.add('hidden'); exportBtn.disabled=!arc; }
+  }
+  function pickMime(){
+    // Prefer true H.264 mp4 (plays everywhere incl. QuickTime); otherwise WebM.
+    // Skip bare "video/mp4" since some builds put VP9 in an .mp4 that QuickTime won't open.
+    const c=['video/mp4;codecs=avc1.42E01E','video/mp4;codecs=h264','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+    return c.find(m=>{ try{ return MediaRecorder.isTypeSupported(m); }catch(e){ return false; } }) || '';
+  }
+  exportBtn.addEventListener('click', exportClip);
+  async function exportClip(){
+    if(!arc || exporting) return;
+    if(typeof MediaRecorder==='undefined' || !HTMLCanvasElement.prototype.captureStream){
+      setStatus('NO EXPORT', ST.load); alert('This browser does not support in-page video export. Try Chrome, Edge or Safari.'); return;
+    }
+    exporting=true;
+    const vw=video.videoWidth, vh=video.videoHeight;
+    const ecan=document.createElement('canvas'); ecan.width=vw; ecan.height=vh;
+    const ectx=ecan.getContext('2d');
+    const ringR=Math.max(2, vw*0.0065), ringW=Math.max(2, vw*0.004);
+    function drawExportFrame(){
+      ectx.drawImage(video,0,0,vw,vh);
+      const p=ringAt(arc.frame0+(video.currentTime-arc.t0)*fps);
+      if(p){
+        ectx.save(); ectx.translate(p.x*vw, p.y*vh);
+        ectx.shadowColor='rgba(255,90,0,0.9)'; ectx.shadowBlur=vw*0.01;
+        ectx.beginPath(); ectx.arc(0,0,ringR,0,Math.PI*2); ectx.strokeStyle='#ff5a00'; ectx.lineWidth=ringW; ectx.stroke();
+        ectx.restore();
+      }
+    }
+    const mime=pickMime();
+    const stream=ecan.captureStream(Math.round(fps||30));
+    // include the clip's audio if we can grab it
+    try{
+      const cs = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
+      const at = cs && cs.getAudioTracks && cs.getAudioTracks()[0];
+      if(at) stream.addTrack(at);
+    }catch(e){}
+    const rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:12000000}:{videoBitsPerSecond:12000000});
+    const chunks=[]; rec.ondataavailable=e=>{ if(e.data && e.data.size) chunks.push(e.data); };
+    const stopped=once(rec,'stop');
+
+    const savedRate=video.playbackRate;
+    video.pause();
+    setExportUI('rec',0);
+    video.currentTime=0; await once(video,'seeked');
+
+    let running=true;
+    const pump=()=>{ if(!running) return; drawExportFrame(); setExportUI('rec', Math.min(99, Math.round(video.currentTime/(video.duration||1)*100))); video.requestVideoFrameCallback(pump); };
+    rec.start();
+    drawExportFrame();
+    if(useRVFC) video.requestVideoFrameCallback(pump);
+    else { var iv=setInterval(()=>{ if(running) drawExportFrame(); }, 1000/(fps||30)); }
+    video.playbackRate=1;
+    try{ await video.play(); }catch(e){}
+    await once(video,'ended');
+
+    running=false; if(typeof iv!=='undefined') clearInterval(iv);
+    setExportUI('save');
+    rec.stop(); await stopped;
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const blob=new Blob(chunks, {type:(mime.split(';')[0]||'video/webm')});
+    const url=URL.createObjectURL(blob);
+    const aEl=document.createElement('a'); aEl.href=url; aEl.download='opentrack-shot.'+ext; document.body.appendChild(aEl); aEl.click(); aEl.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+    video.playbackRate=savedRate; video.pause();
+    video.currentTime=Math.max(0, arc.t0);
+    exporting=false; setExportUI('idle');
+    setStatus('EXPORTED', ST.ready);
   }
 
   // apex handle drag (inert — handle hidden)
