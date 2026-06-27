@@ -623,27 +623,7 @@
     const absF=arc.frame0+tau;
     if(absF<arc.frame0-1e-6 || absF>arc.frame1+1e-6) return;
 
-    // --- tracer trail: glowing path travelled so far (frame0 -> current) ---
-    const headF=Math.min(absF,arc.frame1);
-    const trail=[];
-    for(let f=arc.frame0; f<=headF; f+=0.5){ const q=trackPos(f); trail.push([q.x*W,q.y*H]); }
-    if(trail.length>1){
-      octx.save();
-      octx.lineJoin='round'; octx.lineCap='round';
-      octx.shadowColor='rgba(255,90,0,0.85)'; octx.shadowBlur=10;
-      octx.strokeStyle='#ff5a00'; octx.lineWidth=3;
-      const n=trail.length-1;
-      for(let i=1;i<trail.length;i++){
-        octx.globalAlpha=0.18+0.82*(i/n);
-        octx.beginPath(); octx.moveTo(trail[i-1][0],trail[i-1][1]); octx.lineTo(trail[i][0],trail[i][1]); octx.stroke();
-      }
-      octx.globalAlpha=1; octx.restore();
-    }
-    // impact point (white) at launch
-    const ip=trackPos(arc.frame0);
-    if(ip.x>=0&&ip.x<=1&&ip.y>=0&&ip.y<=1){ octx.save(); octx.fillStyle='#fff'; octx.shadowColor='rgba(255,255,255,.8)'; octx.shadowBlur=8; octx.beginPath(); octx.arc(ip.x*W,ip.y*H,3,0,Math.PI*2); octx.fill(); octx.restore(); }
-
-    // --- ring at head ---
+    // --- doughnut ring at the ball's current position (no trail) ---
     const pos=trackPos(absF);
     let fx=pos.x, fy=pos.y;
     if(fx<0||fx>1||fy<0||fy>1){
