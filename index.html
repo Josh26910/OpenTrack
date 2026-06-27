@@ -628,9 +628,10 @@
   // The ring TRACKS the ball through the exact points you click: it passes through
   // every launch point with NO curve smoothing (a fitted parabola pulls the ring
   // off the ball at launch, where precision matters most). Between clicks it
-  // interpolates linearly; past the last click it extrapolates along the last
-  // tracked velocity so the ball flies off frame naturally and disappears.
-  // Coordinates: normalised screen space fx/fy in [0,1], y is DOWN.
+  // interpolates linearly. PAST the last click it rides a real ballistic arc —
+  // vertical velocity carries over from the tracking, then gravity curves it
+  // smoothly over the apex and accelerates the descent down to the landing (no kink
+  // at the top, no constant-speed crawl). Coordinates: fx/fy in [0,1], y is DOWN.
 
   buildBtn.addEventListener('click', buildArc);
 
@@ -640,8 +641,32 @@
     const first = launchPts[0];
     // Extrapolation velocity = the LAST tracked segment (the direction the ball is
     // actually heading as it leaves frame). Used only past the last clicked point.
+    // Launch velocity from the LAST tracked segment — the ball's actual heading as
+    // it leaves the clicked points. This seeds the gravity arc that follows.
     const a = launchPts[launchPts.length - 2], b = launchPts[launchPts.length - 1];
-    const df = Math.max(1, b.frame - a.frame);
+    const segDf = Math.max(1, b.frame - a.frame);
+    const exVx = (b.fx - a.fx) / segDf;
+    const exVy = (b.fy - a.fy) / segDf;
+
+    // After the last clicked point the ring rides a real ballistic arc:
+    //   x(τ) = xL + cvx·τ                  constant horizontal velocity
+    //   y(τ) = yL + exVy·τ + ½·g·τ²        vertical velocity continues from tracking,
+    //                                      then GRAVITY curves it smoothly over the
+    //                                      apex and accelerates the descent.
+    // Continuing exVy through the handoff keeps vertical motion continuous, so there
+    // is no kink/reversal at the top — that kink was the "bounce". Gravity (g>0) is
+    // what makes the descent speed up instead of crawling down a straight line.
+    const xL = b.fx, yL = b.fy, fL = b.frame;
+    const tauLand = Math.max(1, landingPt.frame - fL);
+    let cvx, g;
+    if (landingPt.offscreen) {
+      cvx = exVx;                                  // keep heading, no on-screen landing
+      g   = -2 * exVy / tauLand;                   // symmetric arc (apex then return)
+    } else {
+      cvx = (landingPt.fx - xL) / tauLand;         // hit the clicked landing x …
+      g   = 2 * (landingPt.fy - yL - exVy * tauLand) / (tauLand * tauLand); // … and y
+    }
+    if (!(g > 0)) g = 0.0008;                       // guard: always fall at least a little
 
     arc = {
       frame0: first.frame,
@@ -649,8 +674,8 @@
       t0: first.t,
       t1: landingPt.t,
       N: Math.max(1, landingPt.frame - first.frame),
-      exVx: (b.fx - a.fx) / df,     // per-frame velocity for off-screen extrapolation
-      exVy: (b.fy - a.fy) / df,
+      // ballistic continuation, valid for absF > fL
+      contFrame: fL, contX: xL, contY: yL, contVx: cvx, contVy: exVy, contG: g,
       offscreen: !!landingPt.offscreen,
     };
 
@@ -664,27 +689,24 @@
     video.currentTime = Math.max(0, first.t);
   }
 
-  // Clicked tracking points in frame order. An off-screen landing has no on-screen
-  // position, so it is NOT a tracking point — we extrapolate out to it instead.
-  function trackedPoints() {
-    return (landingPt && !landingPt.offscreen) ? [...launchPts, landingPt] : [...launchPts];
-  }
-
   // Ring position at a (fractional) absolute frame:
-  //  • inside the clicked range → interpolate through the EXACT clicked points
-  //  • past the last clicked point → extrapolate along the last tracked velocity
+  //  • through the tracked launch points → exact linear interpolation (no smoothing)
+  //  • past the last launch point        → ballistic gravity arc (smooth apex + fall)
   function trackPos(absF) {
-    const pts = trackedPoints();
-    const lastT = pts[pts.length - 1];
-    if (absF <= lastT.frame) {
+    const pts = launchPts;
+    const last = pts[pts.length - 1];
+    if (absF <= last.frame) {
       let lo = pts[0], hi = pts[pts.length - 1];
       for (const p of pts) { if (p.frame <= absF) lo = p; if (p.frame >= absF) { hi = p; break; } }
       if (hi.frame === lo.frame) return { x: lo.fx, y: lo.fy };
       const a = (absF - lo.frame) / (hi.frame - lo.frame);
       return { x: lo.fx + a * (hi.fx - lo.fx), y: lo.fy + a * (hi.fy - lo.fy) };
     }
-    const te = absF - lastT.frame;
-    return { x: lastT.fx + arc.exVx * te, y: lastT.fy + arc.exVy * te };
+    const tau = absF - arc.contFrame;
+    return {
+      x: arc.contX + arc.contVx * tau,
+      y: arc.contY + arc.contVy * tau + 0.5 * arc.contG * tau * tau,
+    };
   }
 
   // ---------- loop + draw ----------
@@ -729,7 +751,7 @@
 
     // Guide path (paused-only planning aid) — drawn in a body-level SVG so it can
     // extend above the video top edge. It traces the SAME path the ring rides:
-    // straight segments through the clicked points, then the extrapolated tail.
+    // straight segments through the clicked launch points, then the gravity arc.
     const showGuide = guideChk.checked && arc && video.paused;
     apexHandle.style.display='none';   // apex handle disabled
     if(!showGuide){
@@ -739,15 +761,17 @@
       const stageR = stage.getBoundingClientRect();
       const toVX = fx => stageR.left + fx * stageR.width;
       const toVY = fy => stageR.top  + fy * stageR.height;
-      const pts = trackedPoints();
-      let d = 'M '+toVX(pts[0].fx)+','+toVY(pts[0].fy);
-      for(let i=1;i<pts.length;i++) d += ' L '+toVX(pts[i].fx)+','+toVY(pts[i].fy);
-      if(arc.frame1 > pts[pts.length-1].frame){          // extrapolated tail to landing frame
-        const end = trackPos(arc.frame1);
-        d += ' L '+toVX(end.x)+','+toVY(end.y);
+      let d = 'M '+toVX(launchPts[0].fx)+','+toVY(launchPts[0].fy);
+      for(let i=1;i<launchPts.length;i++) d += ' L '+toVX(launchPts[i].fx)+','+toVY(launchPts[i].fy);
+      // sample the ballistic continuation so the dashed guide shows the curved arc
+      const fLast = launchPts[launchPts.length-1].frame, steps = 28;
+      for(let k=1;k<=steps;k++){
+        const q = trackPos(fLast + (arc.frame1 - fLast) * (k/steps));
+        d += ' L '+toVX(q.x)+','+toVY(q.y);
       }
       guidePath.setAttribute('d', d);
-      pts.forEach((p,i)=> drawMarker(p.fx*W, p.fy*H, '', (i===pts.length-1 && !arc.offscreen) ? '#39B7FF' : '#FF6A1A'));
+      launchPts.forEach(p=> drawMarker(p.fx*W, p.fy*H, '', '#FF6A1A'));
+      if(!arc.offscreen) drawMarker(landingPt.fx*W, landingPt.fy*H, '', '#39B7FF');
     }
 
     const t = (mediaTime !== undefined) ? mediaTime : video.currentTime;
