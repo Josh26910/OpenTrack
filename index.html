@@ -366,7 +366,7 @@
   let mode = 'idle';                 // idle | launch | landing
   let launchPts = [];                // [{frame,t,fx,fy}]
   let landingPt = null;              // {frame,t,fx,fy}
-  let arc = null;                    // physics model {x0,y0,vx,vy0,g,frame0,frame1,t0,t1,N,...}
+  let arc = null;                    // tracking model {frame0,frame1,t0,t1,N,exVx,exVy,offscreen}
   let parkAtEdge = false;            // park ring at exit point when off-screen (else it flies off and vanishes)
   let dragApex = false;              // (apex handle currently disabled — guide matches physics exactly)
   let curURL = null;                 // object URL of the loaded clip, revoked on replace
@@ -623,22 +623,14 @@
     refreshCalUI();
   });
 
-  // ---------- build trajectory — true ballistic physics ----------
+  // ---------- build trajectory — point-to-point tracking ----------
   //
-  // Coordinate system: normalised screen space, fx/fy in [0,1], y is DOWN.
-  // Time unit: one video frame (τ = 0 at launch frame).
-  //
-  // Model:
-  //   x(τ) = x0 + vx · τ                         constant horizontal velocity
-  //   y(τ) = y0 + vy0 · τ + ½ · g · τ²           gravitational quadratic
-  //
-  // Constraints (3 equations → 3 unknowns vx, vy0, g):
-  //   (A) x(N) = x1   →  vx  = (x1 − x0) / N
-  //   (B) vy0/vx = launch slope from click sequence
-  //   (C) y(N) = y1   →  g   = 2·(y1 − y0 − vy0·N) / N²
-  //
-  // This guarantees: ball leaves at measured angle, constant horizontal speed,
-  // and descends with genuine quadratic gravity — no Bézier speed artefacts.
+  // The ring TRACKS the ball through the exact points you click: it passes through
+  // every launch point with NO curve smoothing (a fitted parabola pulls the ring
+  // off the ball at launch, where precision matters most). Between clicks it
+  // interpolates linearly; past the last click it extrapolates along the last
+  // tracked velocity so the ball flies off frame naturally and disappears.
+  // Coordinates: normalised screen space fx/fy in [0,1], y is DOWN.
 
   buildBtn.addEventListener('click', buildArc);
 
@@ -646,72 +638,21 @@
     if (launchPts.length < 2 || !landingPt) return;
 
     const first = launchPts[0];
-    const x0 = first.fx, y0 = first.fy;
+    // Extrapolation velocity = the LAST tracked segment (the direction the ball is
+    // actually heading as it leaves frame). Used only past the last clicked point.
+    const a = launchPts[launchPts.length - 2], b = launchPts[launchPts.length - 1];
+    const df = Math.max(1, b.frame - a.frame);
 
-    // Total frames from launch to landing
-    const N = Math.max(1, landingPt.frame - first.frame);
-
-    // Launch velocity — least-squares linear regression over ALL launch points
-    // (frame→fx and frame→fy independently), in screen-normalised units per frame.
-    let vx_fit = 0, vy_fit = 0;
-    {
-      const n = launchPts.length;
-      let mf=0, mx=0, my=0;
-      for(const p of launchPts){ mf+=p.frame; mx+=p.fx; my+=p.fy; }
-      mf/=n; mx/=n; my/=n;
-      let covFX=0, covFY=0, varF=0;
-      for(const p of launchPts){
-        const df=p.frame-mf;
-        covFX+=df*(p.fx-mx); covFY+=df*(p.fy-my); varF+=df*df;
-      }
-      vx_fit = varF>1e-12 ? covFX/varF : 0;
-      vy_fit = varF>1e-12 ? covFY/varF : 0;
-    }
-
-    let vx, vy0, g;
-
-    if (landingPt.offscreen) {
-      // Off-screen landing: we know the launch velocity and WHEN it lands, but not
-      // where on screen. Keep the measured launch velocity and derive gravity by
-      // assuming the ball returns to its launch height at the landing frame:
-      //   y(N) = y0  →  vy0·N + ½·g·N² = 0  →  g = −2·vy0 / N
-      vx  = vx_fit;
-      vy0 = vy_fit;
-      g   = -2 * vy0 / N;
-      if (!(g > 0)) g = Math.abs(2 * vy0 / N) || 1e-3;  // guard: ball must fall
-    } else {
-      // On-screen landing: pin the parabola exactly through launch and landing.
-      const x1 = landingPt.fx, y1 = landingPt.fy;
-      vx  = (x1 - x0) / N;                                  // (A) constant horizontal velocity
-      // (B) keep the measured launch angle: scale the fitted vertical rate so the
-      // horizontal component matches the solved vx exactly.
-      vy0 = Math.abs(vx_fit) > 1e-8 ? vy_fit * (vx / vx_fit) : vy_fit;
-      g   = 2 * (y1 - y0 - vy0 * N) / (N * N);              // (C) solve gravity from landing y
-      // Guard: if g ≤ 0 the ball never comes back down (bad clicks). Fix apex at
-      // 40 % of flight and re-solve vy0 and g together.
-      if (g <= 0) {
-        const tau_a = 0.40 * N, denom = 0.5 * N * N - tau_a * N;
-        if (Math.abs(denom) > 1e-9) { g = (y1 - y0) / denom; vy0 = -g * tau_a; }
-        else { g = 0; vy0 = (y1 - y0) / N; }               // pure linear last resort
-      }
-    }
-
-    // Store the physics model. The ring rides this model directly (see draw()).
     arc = {
-      x0, y0, vx, vy0, g,
       frame0: first.frame,
       frame1: landingPt.frame,
       t0: first.t,
       t1: landingPt.t,
-      N,
+      N: Math.max(1, landingPt.frame - first.frame),
+      exVx: (b.fx - a.fx) / df,     // per-frame velocity for off-screen extrapolation
+      exVy: (b.fy - a.fy) / df,
       offscreen: !!landingPt.offscreen,
     };
-    // Guide-preview geometry derived straight from the physics so the dashed line
-    // exactly overlays the ring path. A parabola IS a quadratic Bézier whose control
-    // point is P0 + ½·N·v0 (matches both the linear and quadratic terms exactly).
-    arc.P0   = physPos(arc, 0);
-    arc.P1   = physPos(arc, N);
-    arc.bezC = { x: x0 + 0.5 * N * vx, y: y0 + 0.5 * N * vy0 };
 
     setMode('idle');
     buildDot.className = 'h-2 w-2 rounded-full bg-flame';
@@ -723,20 +664,27 @@
     video.currentTime = Math.max(0, first.t);
   }
 
-  // Physics evaluation — returns {x, y} at τ frames after launch
-  function physPos(a, tau) {
-    return {
-      x: a.x0 + a.vx  * tau,
-      y: a.y0 + a.vy0 * tau + 0.5 * a.g * tau * tau,
-    };
+  // Clicked tracking points in frame order. An off-screen landing has no on-screen
+  // position, so it is NOT a tracking point — we extrapolate out to it instead.
+  function trackedPoints() {
+    return (landingPt && !landingPt.offscreen) ? [...launchPts, landingPt] : [...launchPts];
   }
-  // Bézier helper — used only for the guide-path preview line
-  function bezier(P0, C, P1, s) {
-    const u = 1 - s;
-    return {
-      x: u*u*P0.x + 2*u*s*C.x + s*s*P1.x,
-      y: u*u*P0.y + 2*u*s*C.y + s*s*P1.y,
-    };
+
+  // Ring position at a (fractional) absolute frame:
+  //  • inside the clicked range → interpolate through the EXACT clicked points
+  //  • past the last clicked point → extrapolate along the last tracked velocity
+  function trackPos(absF) {
+    const pts = trackedPoints();
+    const lastT = pts[pts.length - 1];
+    if (absF <= lastT.frame) {
+      let lo = pts[0], hi = pts[pts.length - 1];
+      for (const p of pts) { if (p.frame <= absF) lo = p; if (p.frame >= absF) { hi = p; break; } }
+      if (hi.frame === lo.frame) return { x: lo.fx, y: lo.fy };
+      const a = (absF - lo.frame) / (hi.frame - lo.frame);
+      return { x: lo.fx + a * (hi.fx - lo.fx), y: lo.fy + a * (hi.fy - lo.fy) };
+    }
+    const te = absF - lastT.frame;
+    return { x: lastT.fx + arc.exVx * te, y: lastT.fy + arc.exVy * te };
   }
 
   // ---------- loop + draw ----------
@@ -779,48 +727,48 @@
       return;
     }
 
-    // Guide path — drawn in a body-level SVG so it can extend above the video top
-    // edge. It's a still-frame planning aid, so only show it while paused.
+    // Guide path (paused-only planning aid) — drawn in a body-level SVG so it can
+    // extend above the video top edge. It traces the SAME path the ring rides:
+    // straight segments through the clicked points, then the extrapolated tail.
     const showGuide = guideChk.checked && arc && video.paused;
-    apexHandle.style.display='none';   // apex handle disabled (guide now matches physics exactly)
+    apexHandle.style.display='none';   // apex handle disabled
     if(!showGuide){
       guideSvg.style.display='none';
     } else {
       guideSvg.style.display='';
-      // Convert normalised coords → fixed viewport px for the body-level SVG
       const stageR = stage.getBoundingClientRect();
       const toVX = fx => stageR.left + fx * stageR.width;
       const toVY = fy => stageR.top  + fy * stageR.height;
-      const px0=toVX(arc.P0.x), py0=toVY(arc.P0.y);
-      const pcx=toVX(arc.bezC.x), pcy=toVY(arc.bezC.y);
-      const px1=toVX(arc.P1.x), py1=toVY(arc.P1.y);
-      guidePath.setAttribute('d',`M${px0},${py0} Q${pcx},${pcy} ${px1},${py1}`);
-      drawMarker(arc.P0.x*W,arc.P0.y*H,'','#FF6A1A');
-      if(!arc.offscreen) drawMarker(arc.P1.x*W,arc.P1.y*H,'','#39B7FF');
+      const pts = trackedPoints();
+      let d = 'M '+toVX(pts[0].fx)+','+toVY(pts[0].fy);
+      for(let i=1;i<pts.length;i++) d += ' L '+toVX(pts[i].fx)+','+toVY(pts[i].fy);
+      if(arc.frame1 > pts[pts.length-1].frame){          // extrapolated tail to landing frame
+        const end = trackPos(arc.frame1);
+        d += ' L '+toVX(end.x)+','+toVY(end.y);
+      }
+      guidePath.setAttribute('d', d);
+      pts.forEach((p,i)=> drawMarker(p.fx*W, p.fy*H, '', (i===pts.length-1 && !arc.offscreen) ? '#39B7FF' : '#FF6A1A'));
     }
 
     const t = (mediaTime !== undefined) ? mediaTime : video.currentTime;
-    // Continuous (fractional) frames since launch → smooth motion at any playback
-    // speed, instead of snapping between integer frames.
-    const tau = (t - arc.t0) * fps;
-    if(tau < 0 || tau > arc.N + 1) return;          // only ride launch → landing
+    // Fractional frames: motion is smooth between frames, yet the ring sits exactly
+    // on each clicked point at its own frame (no smoothing of the tracked path).
+    const tau  = (t - arc.t0) * fps;
+    const absF = arc.frame0 + tau;
+    if(absF < arc.frame0 - 1e-6 || absF > arc.frame1 + 1e-6) return;  // launch → landing only
 
-    // Ride the solved ballistic parabola directly: constant horizontal velocity,
-    // quadratic gravity on the vertical. This is what makes the flight a real arc.
-    const pos = physPos(arc, Math.min(tau, arc.N));
+    // Track through the clicked points; extrapolate past the last one.
+    const pos = trackPos(absF);
     let fx = pos.x, fy = pos.y;
 
-    // Off-frame handling. NEVER clamp per-axis — pinning fy to the edge while fx
-    // keeps moving is exactly what made the ring slide/"bounce" along the top.
-    // Either let it fly off the parabola and vanish (default), or park it at the
-    // last point that was inside the frame.
+    // Allow the ring to leave the frame — NEVER clamp per-axis (that pinned it to
+    // the edge and made it slide/"bounce"). Default: it flies off and vanishes.
+    // Optional ("Park ring at exit edge"): hold it at the last on-screen point.
     if(fx < 0 || fx > 1 || fy < 0 || fy > 1){
       if(parkAtEdge){
-        // Walk the arc forward to find the last on-screen point (history-free, so
-        // it's correct even when scrubbing straight to an off-screen frame).
         let pk=null;
-        for(let s=0; s<=tau; s+=0.5){
-          const q=physPos(arc,s);
+        for(let s=arc.frame0; s<=absF; s+=0.5){
+          const q=trackPos(s);
           if(q.x>=0 && q.x<=1 && q.y>=0 && q.y<=1) pk=q; else break;
         }
         if(!pk) return;
