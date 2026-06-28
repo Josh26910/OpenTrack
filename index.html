@@ -209,13 +209,11 @@
               <button id="modeLaunch" class="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-bold text-ink hover:bg-primary2 transition-colors">Plot launch</button>
               <button id="undoPt" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-txt transition-colors">Undo</button>
             </div>
-            <button id="autoFind" class="w-full mt-2 rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[13px] font-semibold text-primary hover:bg-primary/25 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40">
-              <span class="material-symbols-outlined text-base">auto_awesome</span> Auto-find ball
+            <button id="autoFind" class="w-full mt-2 rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[13px] font-semibold text-primary hover:bg-primary/25 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40" disabled>
+              <span class="material-symbols-outlined text-base">auto_awesome</span> Auto-fill along arc
             </button>
-            <label class="flex items-center gap-1.5 text-[11px] text-mut cursor-pointer select-none mt-2">
-              <input id="seedChk" type="checkbox" class="accent-primary" style="width:13px;height:13px;" /> 1-click auto-track <span class="text-mut2">(click the ball once)</span>
-            </label>
-            <p id="autoStatus" class="text-[10px] text-mut2 mt-1.5 leading-relaxed hidden"></p>
+            <p class="text-[10px] text-mut2 mt-1.5 leading-relaxed">Plot 2–4 launch points + the landing and Build — the arc is auto-filled with the real ball detected from the video. Re-run anytime with this button.</p>
+            <p id="autoStatus" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden"></p>
           </div>
           <div id="step2" class="telemetry-card rounded-lg p-3">
             <div class="flex items-center gap-2">
@@ -289,7 +287,7 @@
   const buildBtn=$('buildBtn'), buildDot=$('buildDot'), resetCal=$('resetCal');
   const step1=$('step1'), step2=$('step2'), s2num=$('s2num');
   const offscreenFrame=$('offscreenFrame'), offscreenSet=$('offscreenSet'), offscreenHint=$('offscreenHint');
-  const autoFind=$('autoFind'), seedChk=$('seedChk'), autoStatus=$('autoStatus');
+  const autoFind=$('autoFind'), autoStatus=$('autoStatus');
   const telemetryGrid=$('telemetryGrid'), optimizerText=$('optimizerText'), applyShot=$('applyShot');
   const shotList=$('shotList'), newSession=$('newSession');
 
@@ -432,7 +430,6 @@
     tDur.textContent=video.duration.toFixed(2);
     lastScan=null; setAutoStatus(null);
     resizeOverlay(); resetCalibration(); setStatus('LOADED',ST.load); setMode('launch'); startLoop();
-    setTimeout(()=>runAutoFind(true), 250);   // try to find the ball automatically
   });
   video.addEventListener('play',()=>{ playIcon.style.display='none'; pauseIcon.style.display=''; });
   video.addEventListener('pause',()=>{ playIcon.style.display=''; pauseIcon.style.display='none'; });
@@ -535,7 +532,7 @@
     playImpact.disabled=!arc;
     if(arc){ playImpact.style.opacity='1'; playImpact.style.pointerEvents=''; }
     else { playImpact.style.opacity='0.4'; playImpact.style.pointerEvents='none'; }
-    exportBtn.disabled=!arc;
+    exportBtn.disabled=!arc; autoFind.disabled=!arc;
     redraw();
   }
 
@@ -548,7 +545,6 @@
     const r=stage.getBoundingClientRect();
     const fx=(e.clientX-r.left)/r.width, fy=(e.clientY-r.top)/r.height;
     const t=video.currentTime, frame=Math.round(t*fps);
-    if(seedChk.checked && mode==='launch'){ autoSeedFromClick(frame,fx,fy); return; }
     const pt={frame,t,fx,fy};
     if(mode==='launch'){
       const i=launchPts.findIndex(p=>p.frame===frame);
@@ -561,7 +557,7 @@
   });
 
   // ---------- build trajectory: track clicks exactly, ballistic arc after ----------
-  buildBtn.addEventListener('click',buildArc);
+  buildBtn.addEventListener('click', async ()=>{ buildArc(); await refineAlongArc(); });
   function buildArc(){
     if(launchPts.length<2 || !landingPt) return;
     const first=launchPts[0];
@@ -583,7 +579,7 @@
     setStatus('ARC READY',ST.ready);
     liveBadge.classList.remove('hidden');
     playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
-    exportBtn.disabled=false;
+    exportBtn.disabled=false; autoFind.disabled=false;
     video.currentTime=Math.max(0,first.t);
   }
 
@@ -740,92 +736,48 @@
     }
     return cand;
   }
-  function detectTrack(cand,w,h){
-    const pts=[]; for(let f=0;f<cand.length;f++) for(const c of cand[f]) pts.push({f,x:c.x,y:c.y});
-    if(pts.length<4) return null;
-    const tol=Math.max(4,w*0.05); let best=null;
-    for(let it=0; it<4000; it++){
-      const A=pts[(Math.random()*pts.length)|0], B=pts[(Math.random()*pts.length)|0];
-      const df=B.f-A.f; if(df<1||df>4) continue;
-      const vx=(B.x-A.x)/df, vy=(B.y-A.y)/df;
-      if(Math.hypot(vx,vy) < w*0.012) continue;          // ball moves fast
-      const inl=[];
-      for(let f=A.f; f<cand.length; f++){
-        const px=A.x+vx*(f-A.f), py=A.y+vy*(f-A.f);
-        if(px<-tol||px>w+tol||py<-tol||py>h+tol){ if(f-A.f>2) break; else continue; }
-        let bc=null,bd=tol;
-        for(const c of cand[f]){ const d=Math.hypot(c.x-px,c.y-py); if(d<bd){bd=d;bc=c;} }
-        if(bc) inl.push({f,x:bc.x,y:bc.y}); else if(inl.length>=3) break;
-      }
-      if(inl.length>=4){ const span=inl[inl.length-1].f-inl[0].f, score=inl.length+span*0.3; if(!best||score>best.score) best={score,inl}; }
-    }
-    return best?best.inl:null;
-  }
-  function seededTrack(cand,w,h,f0,x0,y0){
-    const tr=[{f:f0,x:x0,y:y0}]; let vx=0,vy=0,lost=0;
-    for(let f=f0+1; f<cand.length; f++){
-      const last=tr[tr.length-1], px=last.x+vx, py=last.y+vy;
-      let bc=null,bd=Math.max(7,w*0.09);
-      for(const c of cand[f]){ const d=Math.hypot(c.x-px,c.y-py); if(d<bd){bd=d;bc=c;} }
-      if(bc){ vx=bc.x-last.x; vy=bc.y-last.y; tr.push({f,x:bc.x,y:bc.y}); lost=0; }
-      else { lost++; if(lost>2) break; }
-      if(px<0||px>w||py<0||py>h) break;
-    }
-    return tr.length>=2?tr:null;
-  }
-  function applyTrack(track,w,h){
-    if(!track||track.length<2) return false;
-    launchPts=track.map(p=>({frame:p.f, t:p.f/fps, fx:p.x/w, fy:p.y/h})).sort((a,b)=>a.frame-b.frame);
-    // estimate an off-screen landing by extrapolating the final velocity to the edge
-    const a=launchPts[launchPts.length-2], b=launchPts[launchPts.length-1];
-    const dfr=Math.max(1,b.frame-a.frame), vx=(b.fx-a.fx)/dfr, vy=(b.fy-a.fy)/dfr;
-    let lf=b.frame, fx=b.fx, fy=b.fy, guard=0;
-    while(fx>=-0.15&&fx<=1.15&&fy>=-0.15&&fy<=1.15&&guard<600){ lf++; fx+=vx; fy+=vy; guard++; }
-    landingPt={frame:Math.max(lf,b.frame+1), t:lf/fps, offscreen:true};
-    refreshCalUI(); buildArc();
-    return true;
-  }
-
   async function ensureScan(){
     if(lastScan) return lastScan;
     const scan=await grabFrames();
     if(scan){ scan.cand=candidatesOf(scan); lastScan=scan; }
     return lastScan;
   }
-  async function runAutoFind(silent){
-    if(autoBusy || stageWrap.classList.contains('hidden')) return;
+  // Arc-guided fill: with an arc built from your launch points + landing, detect the
+  // ACTUAL ball near the arc's predicted position on each in-between frame and insert
+  // those points, so the ring rides the real ball instead of the ballistic guess.
+  // The arc tells us where to look, so detection is robust (small search window).
+  async function refineAlongArc(){
+    if(!arc || autoBusy || stageWrap.classList.contains('hidden')) return;
     autoBusy=true; autoFind.disabled=true; setStatus('SCANNING',ST.track);
     try{
       const scan=await ensureScan();
-      if(!scan){ setAutoStatus('Could not read the clip.', 'warn'); return; }
-      // RANSAC robustly locates the ball; seeded tracker then follows the full curve.
-      let track=detectTrack(scan.cand, scan.w, scan.h);
-      if(track){ const s=track[0]; const ext=seededTrack(scan.cand, scan.w, scan.h, s.f, s.x, s.y); if(ext && ext.length>track.length) track=ext; }
-      if(track && applyTrack(track, scan.w, scan.h)){
-        setAutoStatus('Ball found — '+launchPts.length+' points plotted & arc built. Refine or Reset if needed.', 'ok');
-        setStatus('ARC READY', ST.ready);
-      } else {
-        setMode('launch');
-        seedChk.checked=true;
-        setAutoStatus("Couldn't auto-find the ball — turn on 1-click auto-track and click the ball once at impact.", 'warn');
-        if(!silent) setStatus('LOADED', ST.load);
+      if(!scan){ setAutoStatus('Could not read the clip.','warn'); return; }
+      const {cand,w,h}=scan; let total=0;
+      for(let pass=0; pass<3; pass++){
+        const have={}; for(const p of launchPts) have[p.frame]=1;
+        const tolPx=Math.max(8, w*(pass===0?0.11:0.06));   // search window tightens each pass
+        const found=[];
+        for(let f=Math.round(arc.frame0)+1; f<arc.frame1 && f<cand.length; f++){
+          if(have[f]) continue;
+          const pred=trackPos(f);
+          if(pred.x<0||pred.x>1||pred.y<0||pred.y>1) continue;   // ball off-screen here — skip
+          const px=pred.x*w, py=pred.y*h;
+          let bc=null,bd=tolPx;
+          for(const c of cand[f]){ const d=Math.hypot(c.x-px,c.y-py); if(d<bd){bd=d;bc=c;} }
+          if(bc) found.push({frame:f, t:f/fps, fx:bc.x/w, fy:bc.y/h});
+        }
+        if(!found.length) break;
+        launchPts=[...launchPts, ...found].sort((a,b)=>a.frame-b.frame);
+        buildArc();                                          // re-fit, then predict tighter next pass
+        total+=found.length;
       }
-    } finally { autoBusy=false; autoFind.disabled=false; }
+      lpCount.textContent=launchPts.length+' pts';            // reflect filled points
+      if(total) setAutoStatus('Filled '+total+' ball positions along the arc from the video.', 'ok');
+      else setAutoStatus('No ball found near the arc — your points are kept. Add a launch point or adjust the landing.', 'warn');
+      setStatus('ARC READY', ST.ready);
+    } finally { autoBusy=false; autoFind.disabled=!arc; }
   }
-  async function autoSeedFromClick(frame,fx,fy){
-    autoBusy=true; setStatus('SCANNING',ST.track); setAutoStatus('Tracking from your click…');
-    try{
-      const scan=await ensureScan(); if(!scan) return;
-      const x0=fx*scan.w, y0=fy*scan.h;
-      const f0=Math.max(0,Math.min(scan.frames.length-1,frame));
-      const track=seededTrack(scan.cand, scan.w, scan.h, f0, x0, y0);
-      if(track && applyTrack(track, scan.w, scan.h)){
-        setAutoStatus('Tracked '+launchPts.length+' points from your click. Refine or Reset if needed.', 'ok');
-        setStatus('ARC READY', ST.ready);
-      } else { setAutoStatus('Lost the ball after that point — try clicking right at impact.', 'warn'); }
-    } finally { autoBusy=false; }
-  }
-  autoFind.addEventListener('click',()=>runAutoFind(false));
+  autoFind.addEventListener('click', refineAlongArc);
 
   // ---------- export: composite video + ring to a downloadable clip ----------
   let exporting=false;
