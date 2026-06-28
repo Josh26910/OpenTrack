@@ -713,15 +713,15 @@
     return {frames,w,h};
   }
 
-  function blobs(mask,w,h,minA,maxA){
+  function blobs(mask,gray,w,h,minA,maxA){
     const seen=new Uint8Array(w*h), out=[], st=[];
     for(let s=0;s<mask.length;s++){
       if(!mask[s]||seen[s]) continue;
       st.length=0; st.push(s); seen[s]=1;
-      let area=0,sx=0,sy=0,minx=w,maxx=0,miny=h,maxy=0;
+      let area=0,sx=0,sy=0,sb=0,minx=w,maxx=0,miny=h,maxy=0;
       while(st.length){
         const idx=st.pop(), x=idx%w, y=(idx/w)|0;
-        area++; sx+=x; sy+=y; if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y;
+        area++; sx+=x; sy+=y; sb+=gray[idx]; if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y;
         for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
           const nx=x+dx, ny=y+dy; if(nx<0||ny<0||nx>=w||ny>=h) continue;
           const ni=ny*w+nx; if(mask[ni]&&!seen[ni]){ seen[ni]=1; st.push(ni); }
@@ -729,18 +729,19 @@
       }
       if(area<minA||area>maxA) continue;
       const bw=maxx-minx+1, bh=maxy-miny+1, aspect=bw/bh, fill=area/(bw*bh);
-      if(aspect<0.3||aspect>3.3||fill<0.3) continue;
-      out.push({x:sx/area, y:sy/area, area});
+      // allow motion-blur streaks (elongated); reject huge sprawls (body) and tiny noise
+      if(aspect<0.2||aspect>5.5||fill<0.22) continue;
+      out.push({x:sx/area, y:sy/area, area, bright:sb/area});
     }
     return out;
   }
   function candidatesOf(scan){
     const {frames,w,h}=scan, cand=[[]];
-    const minA=2, maxA=Math.max(8,Math.round(w*h*0.0035));
+    const minA=2, maxA=Math.max(10,Math.round(w*h*0.004));
     for(let i=1;i<frames.length;i++){
       const a=frames[i], b=frames[i-1], mask=new Uint8Array(w*h);
-      for(let q=0;q<a.length;q++){ if(Math.abs(a[q]-b[q])>24) mask[q]=1; }
-      cand.push(blobs(mask,w,h,minA,maxA));
+      for(let q=0;q<a.length;q++){ if(Math.abs(a[q]-b[q])>22) mask[q]=1; }
+      cand.push(blobs(mask,a,w,h,minA,maxA));
     }
     return cand;
   }
@@ -750,38 +751,61 @@
     if(scan){ scan.cand=candidatesOf(scan); lastScan=scan; }
     return lastScan;
   }
-  // Arc-guided fill: with an arc built from your launch points + landing, detect the
-  // ACTUAL ball near the arc's predicted position on each in-between frame and insert
-  // those points, so the ring rides the real ball instead of the ballistic guess.
-  // The arc tells us where to look, so detection is robust (small search window).
+  // Robust fit of  val = v·tau + ½·a·tau²  (passes through 0 at tau=0, i.e. the last
+  // anchor). Iteratively reweighted least squares so clutter detections are rejected.
+  function robustQuad(obs){
+    if(obs.length<2) return null;
+    let wt=obs.map(o=>o.wgt||1), v=0, a=0;
+    for(let iter=0; iter<4; iter++){
+      let S11=0,S12=0,S22=0,b1=0,b2=0;
+      for(let i=0;i<obs.length;i++){ const t=obs[i].tau, p1=t, p2=0.5*t*t, wi=wt[i];
+        S11+=wi*p1*p1; S12+=wi*p1*p2; S22+=wi*p2*p2; b1+=wi*p1*obs[i].val; b2+=wi*p2*obs[i].val; }
+      const det=S11*S22-S12*S12; if(Math.abs(det)<1e-12) return null;
+      v=(b1*S22-b2*S12)/det; a=(S11*b2-S12*b1)/det;
+      const res=obs.map(o=>Math.abs(o.val-(v*o.tau+0.5*a*o.tau*o.tau)));
+      const sorted=[...res].sort((x,y)=>x-y), mad=sorted[Math.floor(sorted.length/2)]||1e-6, sigma=Math.max(1e-4,1.4826*mad);
+      wt=obs.map((o,i)=>(o.wgt||1)*(res[i]<=2*sigma?1:Math.pow(2*sigma/res[i],2)));
+    }
+    const res=obs.map(o=>Math.abs(o.val-(v*o.tau+0.5*a*o.tau*o.tau)));
+    const sorted=[...res].sort((x,y)=>x-y), mad=sorted[Math.floor(sorted.length/2)]||1e-6, sigma=Math.max(1e-4,1.4826*mad);
+    return {v,a,inliers:res.filter(r=>r<=2.5*sigma).length};
+  }
+  // Arc-guided refine: detect ball candidates near the predicted arc, then ROBUSTLY
+  // fit one smooth parabola (per axis) to them — clutter is down-weighted and the ring
+  // rides a single smooth curve, so it can't jitter. Falls back to your anchored arc
+  // when detections are too few/noisy (e.g. ball lost in trees).
   async function refineAlongArc(){
     if(!arc || autoBusy || stageWrap.classList.contains('hidden')) return;
     autoBusy=true; autoFind.disabled=true; setStatus('SCANNING',ST.track);
     try{
       const scan=await ensureScan();
       if(!scan){ setAutoStatus('Could not read the clip.','warn'); return; }
-      const {cand,w,h}=scan; let total=0;
-      for(let pass=0; pass<3; pass++){
-        const have={}; for(const p of launchPts) have[p.frame]=1;
-        const tolPx=Math.max(7, w*(pass===0?0.07:0.045));  // tight window: stay on the arc, ignore body
-        const found=[];
-        for(let f=Math.round(arc.frame0)+1; f<arc.frame1 && f<cand.length; f++){
-          if(have[f]) continue;
+      const {cand,w,h}=scan;
+      const fL=arc.contFrame, xLn=arc.contX, yLn=arc.contY, tauLand=Math.max(1, arc.frame1-fL);
+      let used=0;
+      for(let pass=0; pass<2; pass++){
+        const tol=Math.max(7, w*(pass===0?0.08:0.05));
+        const obx=[], oby=[];
+        for(let f=fL+1; f<arc.frame1 && f<cand.length; f++){
           const pred=trackPos(f);
-          if(pred.x<0||pred.x>1||pred.y<0||pred.y>1) continue;   // ball off-screen here — skip
+          if(pred.x<0||pred.x>1||pred.y<0||pred.y>1) continue;
           const px=pred.x*w, py=pred.y*h;
-          let bc=null,bd=tolPx;
-          for(const c of cand[f]){ const d=Math.hypot(c.x-px,c.y-py); if(d<bd){bd=d;bc=c;} }
-          if(bc) found.push({frame:f, t:f/fps, fx:bc.x/w, fy:bc.y/h});
+          let bc=null, score=Infinity;
+          for(const c of cand[f]){ const d=Math.hypot(c.x-px,c.y-py); if(d>tol) continue;
+            const s=d - c.bright*0.06;            // prefer near AND bright (ball > dark trees)
+            if(s<score){ score=s; bc=c; } }
+          if(bc){ const tau=f-fL; obx.push({tau,val:bc.x/w-xLn,wgt:1}); oby.push({tau,val:bc.y/h-yLn,wgt:1}); }
         }
-        if(!found.length) break;
-        launchPts=[...launchPts, ...found].sort((a,b)=>a.frame-b.frame);
-        buildArc();                                          // re-fit, then predict tighter next pass
-        total+=found.length;
+        if(!arc.offscreen){ obx.push({tau:tauLand,val:landingPt.fx-xLn,wgt:8}); oby.push({tau:tauLand,val:landingPt.fy-yLn,wgt:8}); }
+        const fx=robustQuad(obx), fy=robustQuad(oby);
+        used=Math.max(0, obx.length-(arc.offscreen?0:1));
+        if(!fx||!fy) break;
+        arc.contVx=fx.v; arc.contAx=fx.a; arc.contVy=fy.v;
+        if(fy.a>1e-5) arc.contG=fy.a;             // keep a downward curve; else keep prior gravity
       }
-      lpCount.textContent=launchPts.length+' pts';            // reflect filled points
-      if(total) setAutoStatus('Filled '+total+' ball positions along the arc from the video.', 'ok');
-      else setAutoStatus('No ball found near the arc — your points are kept. Add a launch point or adjust the landing.', 'warn');
+      redraw();
+      if(used>=3) setAutoStatus('Locked the arc to '+used+' detected ball positions (smoothed, outliers rejected).','ok');
+      else setAutoStatus('Too few clean detections (busy background) — kept your launch points + landing. Add a point where the ball is clearly visible.','warn');
       setStatus('ARC READY', ST.ready);
     } finally { autoBusy=false; autoFind.disabled=!arc; }
   }
