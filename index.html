@@ -14,33 +14,57 @@
     darkMode: 'class',
     theme: { extend: {
       colors: {
-        ink:'#0a0a0a', surface:'#131313', card:'#1a1a1a', card2:'#20201f',
-        line:'#2a2a2a', line2:'#353535',
-        primary:'#ff5a00', primary2:'#ff7a33',
-        green:'#00e676', green2:'#7dffa2',
-        txt:'#e5e2e1', mut:'#ab897e', mut2:'#7d7873',
+        ink:'#0a0b0e', surface:'#0f1115', card:'#15171c', card2:'#1b1e25',
+        line:'#262a32', line2:'#333845',
+        primary:'#ff5a00', primary2:'#ff8a3d',
+        green:'#00e676', green2:'#7dffa2', blue:'#3ba0ff',
+        txt:'#e7eaf0', mut:'#9aa3b2', mut2:'#5f6772',
       },
       fontFamily: { sans:['Inter','system-ui','sans-serif'], mono:['"JetBrains Mono"','monospace'] },
     }},
   };
 </script>
 <style>
-  html,body{background:#0a0a0a;color:#e5e2e1;font-family:'Inter',sans-serif;}
+  html,body{color:#e7eaf0;font-family:'Inter',sans-serif;}
+  body{
+    background:
+      radial-gradient(1100px 560px at 72% -8%, rgba(255,90,0,.07), transparent 60%),
+      radial-gradient(900px 520px at 6% 112%, rgba(59,160,255,.05), transparent 60%),
+      linear-gradient(180deg,#0c0e12,#090a0d);
+    background-attachment:fixed;
+  }
+  /* faint instrument grid behind everything */
+  body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+    background-size:42px 42px;-webkit-mask-image:radial-gradient(circle at 60% 22%,#000,transparent 78%);mask-image:radial-gradient(circle at 60% 22%,#000,transparent 78%);opacity:.55;}
+  main{position:relative;z-index:1;}
   .mono{font-family:'JetBrains Mono',monospace;}
   .tnum{font-variant-numeric:tabular-nums;}
   .material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;direction:ltr;}
   .hide-scrollbar::-webkit-scrollbar{display:none;} .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
-  .telemetry-card{background:#1a1a1a;border:1px solid #2a2a2a;transition:all .18s ease-out;}
-  .telemetry-card:hover{border-color:#ff5a00;transform:translateY(-2px);}
+  header{background:linear-gradient(180deg,rgba(16,18,22,.92),rgba(10,11,14,.85));backdrop-filter:blur(10px);box-shadow:0 1px 0 rgba(255,255,255,.04),0 8px 26px -18px #000;}
+  /* depth + glow on the telemetry / control cards */
+  .telemetry-card{background:linear-gradient(158deg,#171a20,#121419);border:1px solid #262a32;border-radius:.6rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.03);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;}
+  .telemetry-card:hover{border-color:rgba(255,90,0,.55);transform:translateY(-2px);box-shadow:0 14px 34px -16px rgba(0,0,0,.85),0 0 0 1px rgba(255,90,0,.12),inset 0 1px 0 rgba(255,255,255,.05);}
+  .telemetry-card input.tile-in,.telemetry-card [id^="val_"]{text-shadow:0 0 18px rgba(255,140,60,.10);}
+  /* gradient primary accents (buttons, logo, bars, dots) */
+  .bg-primary{background-image:linear-gradient(180deg,#ff8a3d,#ff5a00);}
+  button.bg-primary{box-shadow:0 8px 22px -12px rgba(255,90,0,.75);} button.bg-primary:hover{filter:brightness(1.06);}
   .status-pulse{animation:pulse 2s infinite;}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,230,118,.45);}70%{box-shadow:0 0 0 6px rgba(0,230,118,0);}100%{box-shadow:0 0 0 0 rgba(0,230,118,0);}}
   .blip{animation:blip 1.4s ease-in-out infinite;} @keyframes blip{0%,100%{opacity:.35}50%{opacity:1}}
   .video-overlay-gradient{background:linear-gradient(to top, rgba(0,0,0,.85) 0%, transparent 38%, transparent 62%, rgba(0,0,0,.45) 100%);}
-  input[type=range].sk{-webkit-appearance:none;appearance:none;height:4px;border-radius:999px;background:#2a2a2a;outline:none;}
-  input[type=range].sk::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:#ff5a00;cursor:pointer;box-shadow:0 0 0 4px rgba(255,90,0,.18);}
+  /* premium video frame: outer glow + inner hairline + HUD corner ticks */
+  .stagecard{box-shadow:0 0 0 1px rgba(255,255,255,.04),0 30px 70px -30px rgba(0,0,0,.95),0 0 70px -34px rgba(255,90,0,.3);}
+  .stagecard::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:24;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05),inset 0 0 70px -34px rgba(0,0,0,.9);}
+  #stage::before,#stage::after{content:'';position:absolute;inset:-2px;pointer-events:none;z-index:26;}
+  #stage::before{background:linear-gradient(#fff,#fff) top left/16px 2px no-repeat,linear-gradient(#fff,#fff) top left/2px 16px no-repeat,linear-gradient(#fff,#fff) bottom right/16px 2px no-repeat,linear-gradient(#fff,#fff) bottom right/2px 16px no-repeat;opacity:.5;}
+  #stage::after{background:linear-gradient(#fff,#fff) top right/16px 2px no-repeat,linear-gradient(#fff,#fff) top right/2px 16px no-repeat,linear-gradient(#fff,#fff) bottom left/16px 2px no-repeat,linear-gradient(#fff,#fff) bottom left/2px 16px no-repeat;opacity:.5;}
+  input[type=range].sk{-webkit-appearance:none;appearance:none;height:4px;border-radius:999px;background:#262a32;outline:none;}
+  input[type=range].sk::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:#ff5a00;cursor:pointer;box-shadow:0 0 0 4px rgba(255,90,0,.18),0 0 10px rgba(255,90,0,.5);}
   input[type=range].sk::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:#ff5a00;cursor:pointer;}
-  .num-in{background:#0e0e0e;border:1px solid #2a2a2a;}
-  .num-in:focus{border-color:#ff5a00;outline:none;box-shadow:0 0 0 3px rgba(255,90,0,.12);}
+  .num-in{background:#0c0e12;border:1px solid #262a32;}
+  .num-in:focus{border-color:#ff5a00;outline:none;box-shadow:0 0 0 3px rgba(255,90,0,.14);}
   .tile-in{background:transparent;border:none;outline:none;width:100%;}
   .tile-in:focus{outline:none;}
   /* hide number spinners */
@@ -101,7 +125,7 @@
 
     <!-- Center: visualizer -->
     <section class="flex-1 flex flex-col p-4 gap-4 min-w-0">
-      <div class="flex-1 relative bg-black rounded-xl border border-line overflow-hidden group shadow-2xl grid place-items-center min-h-0">
+      <div class="stagecard flex-1 relative bg-black rounded-xl border border-line overflow-hidden group shadow-2xl grid place-items-center min-h-0">
 
         <!-- Drop zone -->
         <div id="dropZone" class="absolute inset-0 z-30 grid place-items-center text-center px-6 cursor-pointer select-none bg-[#0a0a0a] transition-colors">
@@ -352,7 +376,7 @@
   const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
   const frameDur=()=>1/(fps||30);
   function setStatus(t,c){ statusTxt.textContent=t; statusTxt.style.color=c.txt; dot.className='w-2 h-2 rounded-full '+c.dot; }
-  const ST={ idle:{txt:'#ab897e',dot:'bg-mut2'}, load:{txt:'#ff7a33',dot:'bg-primary'}, track:{txt:'#ff7a33',dot:'bg-primary blip'}, ready:{txt:'#7dffa2',dot:'bg-green status-pulse'} };
+  const ST={ idle:{txt:'#9aa3b2',dot:'bg-mut2'}, load:{txt:'#ff8a3d',dot:'bg-primary'}, track:{txt:'#ff8a3d',dot:'bg-primary blip'}, ready:{txt:'#7dffa2',dot:'bg-green status-pulse'} };
 
   // ---------- telemetry ----------
   const METRICS=[
