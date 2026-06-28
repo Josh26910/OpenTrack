@@ -198,6 +198,10 @@
           <span class="mono text-[10px] text-mut2">PLOT → BUILD</span>
         </div>
         <div class="space-y-3">
+          <div class="flex gap-1 bg-card2 rounded-lg p-1">
+            <button id="tabAuto" class="flex-1 rounded-md py-1.5 text-[12px] font-bold bg-primary text-ink transition-colors">Auto arc</button>
+            <button id="tabShape" class="flex-1 rounded-md py-1.5 text-[12px] font-bold text-mut hover:text-txt transition-colors">Shape</button>
+          </div>
           <div id="step1" class="telemetry-card rounded-lg p-3" style="border-color:rgba(255,90,0,.5);">
             <div class="flex items-center gap-2">
               <span class="h-5 w-5 grid place-items-center rounded-full bg-primary text-ink text-[11px] font-bold">1</span>
@@ -209,11 +213,14 @@
               <button id="modeLaunch" class="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-bold text-ink hover:bg-primary2 transition-colors">Plot launch</button>
               <button id="undoPt" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-txt transition-colors">Undo</button>
             </div>
-            <button id="autoFind" class="w-full mt-2 rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[13px] font-semibold text-primary hover:bg-primary/25 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40" disabled>
-              <span class="material-symbols-outlined text-base">auto_awesome</span> Auto-fill along arc
-            </button>
-            <p class="text-[10px] text-mut2 mt-1.5 leading-relaxed">Plot 2–4 launch points + the landing and Build — the arc is auto-filled with the real ball detected from the video. Re-run anytime with this button.</p>
-            <p id="autoStatus" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden"></p>
+            <div id="autoOnly">
+              <button id="autoFind" class="w-full mt-2 rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[13px] font-semibold text-primary hover:bg-primary/25 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40" disabled>
+                <span class="material-symbols-outlined text-base">auto_awesome</span> Auto-fill along arc
+              </button>
+              <p class="text-[10px] text-mut2 mt-1.5 leading-relaxed">Plot 2–4 launch points + the landing and Build — the arc is auto-filled with the real ball detected from the video. Re-run anytime with this button.</p>
+              <p id="autoStatus" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden"></p>
+            </div>
+            <p id="shapeHint" class="text-[10px] text-mut2 mt-2 leading-relaxed hidden">Plot 2–4 launch points + the landing, then Build — then drag the handles below to shape the flight by eye.</p>
           </div>
           <div id="step2" class="telemetry-card rounded-lg p-3">
             <div class="flex items-center gap-2">
@@ -233,6 +240,15 @@
           <button id="buildBtn" class="w-full rounded-lg bg-card2 border border-line px-3 py-2 text-[13px] font-bold text-txt hover:border-primary/60 transition-colors disabled:opacity-40 flex items-center justify-center gap-2" disabled>
             <span id="buildDot" class="h-2 w-2 rounded-full bg-mut2"></span> Build trajectory
           </button>
+          <div id="shapePanel" class="hidden telemetry-card rounded-lg p-3">
+            <div class="mono text-[10px] text-mut2 uppercase mb-2">Shape the flight — pick a handle, drag the dot</div>
+            <div class="grid grid-cols-2 gap-2">
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="C1">Curve 1st</button>
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="A">Apex</button>
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="C2">Curve 2nd</button>
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="L">Landing</button>
+            </div>
+          </div>
           <button id="resetCal" class="w-full rounded-lg px-3 py-1.5 text-[12px] text-mut2 hover:text-mut transition-colors">Reset calibration</button>
         </div>
       </div>
@@ -288,6 +304,7 @@
   const step1=$('step1'), step2=$('step2'), s2num=$('s2num');
   const offscreenFrame=$('offscreenFrame'), offscreenSet=$('offscreenSet'), offscreenHint=$('offscreenHint');
   const autoFind=$('autoFind'), autoStatus=$('autoStatus');
+  const tabAuto=$('tabAuto'), tabShape=$('tabShape'), shapePanel=$('shapePanel'), autoOnly=$('autoOnly'), shapeHint=$('shapeHint');
   const telemetryGrid=$('telemetryGrid'), optimizerText=$('optimizerText'), applyShot=$('applyShot');
   const shotList=$('shotList'), newSession=$('newSession');
 
@@ -299,6 +316,18 @@
   guidePath.setAttribute('fill','none'); guidePath.setAttribute('stroke','rgba(255,255,255,0.35)');
   guidePath.setAttribute('stroke-width','1.5'); guidePath.setAttribute('stroke-dasharray','5,5');
   guideSvg.appendChild(guidePath);
+  // draggable Shape-editor handle markers (Curve 1st / Apex / Curve 2nd / Landing)
+  const SVGNS='http://www.w3.org/2000/svg';
+  const handleMarks={};
+  ['C1','A','C2','L'].forEach(k=>{
+    const c=document.createElementNS(SVGNS,'circle');
+    c.setAttribute('r','5'); c.setAttribute('fill','rgba(255,90,0,0.35)');
+    c.setAttribute('stroke','#fff'); c.setAttribute('stroke-width','1.5');
+    c.setAttribute('class','shapeMark'); c.setAttribute('data-h',k);
+    c.style.cssText='pointer-events:auto;cursor:grab;display:none;';
+    c.addEventListener('pointerdown',(e)=>{ if(!shape) return; activeHandle=k; draggingHandle=true; try{c.setPointerCapture(e.pointerId);}catch(_){} highlightShapeBtns(); e.stopPropagation(); e.preventDefault(); redraw(); });
+    guideSvg.appendChild(c); handleMarks[k]=c;
+  });
 
   // state
   let fps=30, fpsAuto=true;
@@ -314,6 +343,7 @@
   let lastMediaTime=-1, fpsSamples=[];
   let shots=[];
   let lastScan=null, autoBusy=false;   // cached frame analysis for the auto ball finder
+  let shapeOn=false, shape=null, activeHandle=null, draggingHandle=false;   // manual Shape editor
 
   const once=(el,ev)=>new Promise(res=>el.addEventListener(ev,res,{once:true}));
   const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -512,7 +542,9 @@
   resetCal.addEventListener('click',resetCalibration);
 
   function resetCalibration(){
-    launchPts=[]; landingPt=null; arc=null; setMode(video.src?'launch':'idle');
+    launchPts=[]; landingPt=null; arc=null; shape=null; activeHandle=null;
+    shapePanel.classList.add('hidden'); hideShapeHandles();
+    setMode(video.src?'launch':'idle');
     refreshCalUI(); octx.clearRect(0,0,overlay.width,overlay.height);
   }
   function refreshCalUI(){
@@ -557,7 +589,18 @@
   });
 
   // ---------- build trajectory: track clicks exactly, ballistic arc after ----------
-  buildBtn.addEventListener('click', async ()=>{ buildArc(); await refineAlongArc(); });
+  buildBtn.addEventListener('click', async ()=>{
+    if(shapeOn){
+      buildShape(); activeHandle='A'; highlightShapeBtns();
+      shapePanel.classList.remove('hidden');
+      buildDot.className='h-2 w-2 rounded-full bg-green';
+      setStatus('SHAPE READY',ST.ready); liveBadge.classList.remove('hidden');
+      playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
+      exportBtn.disabled=false;
+      video.currentTime=Math.max(0,launchPts[0].t);
+      redraw();
+    } else { buildArc(); await refineAlongArc(); }
+  });
   function buildArc(){
     if(launchPts.length<2 || !landingPt) return;
     const first=launchPts[0];
@@ -605,6 +648,67 @@
              y:arc.contY+arc.contVy*tau+0.5*arc.contG*tau*tau };  // gravity
   }
 
+  // ---------- Shape editor (manual): two quadratic Béziers joined at the apex ----------
+  // P0 --(C1)--> A --(C2)--> L. You drag C1 (curve 1st), A (apex), C2 (curve 2nd), L.
+  const bez=(p0,c,p1,s)=>{ const u=1-s; return { x:u*u*p0.x+2*u*s*c.x+s*s*p1.x, y:u*u*p0.y+2*u*s*c.y+s*s*p1.y }; };
+  function shapePos(absF){
+    const f0=shape.launchFrame, fA=shape.apexFrame, f1=shape.landingFrame;
+    if(absF<=f0) return shape.P0;
+    if(absF>=f1) return shape.L;
+    if(absF<=fA){ const s=(absF-f0)/Math.max(1e-6,fA-f0); return bez(shape.P0,shape.C1,shape.A,s); }
+    const s=(absF-fA)/Math.max(1e-6,f1-fA); return bez(shape.A,shape.C2,shape.L,s);
+  }
+  function buildShape(){
+    if(launchPts.length<2 || !landingPt) return;
+    if(!arc) buildArc();                                   // for sensible defaults
+    if(!arc) return;
+    const f0=launchPts[0].frame, f1=landingPt.frame;
+    const P0={x:launchPts[0].fx,y:launchPts[0].fy};
+    let L; if(landingPt.offscreen){ const p=trackPos(f1); L={x:p.x,y:p.y}; } else L={x:landingPt.fx,y:landingPt.fy};
+    let apexFrame=Math.round((f0+f1)/2), best=Infinity;
+    for(let f=f0; f<=f1; f++){ const p=trackPos(f); if(p.y<best){ best=p.y; apexFrame=f; } }
+    apexFrame=Math.min(f1-1, Math.max(f0+1, apexFrame));
+    const A=trackPos(apexFrame), m1=trackPos((f0+apexFrame)/2), m2=trackPos((apexFrame+f1)/2);
+    const C1={x:2*m1.x-0.5*(P0.x+A.x), y:2*m1.y-0.5*(P0.y+A.y)};   // pass through arc mid initially
+    const C2={x:2*m2.x-0.5*(A.x+L.x), y:2*m2.y-0.5*(A.y+L.y)};
+    shape={ launchFrame:f0, landingFrame:f1, apexFrame, P0, C1, A:{x:A.x,y:A.y}, C2, L };
+  }
+  function hideShapeHandles(){ for(const k in handleMarks) handleMarks[k].style.display='none'; }
+  function highlightShapeBtns(){ document.querySelectorAll('.shapeBtn').forEach(b=>{ const on=b.dataset.h===activeHandle; b.style.borderColor=on?'#ff5a00':''; b.style.color=on?'#ff5a00':''; }); }
+  function drawShape(){
+    apexHandle.style.display='none';
+    guideSvg.style.display='';
+    const sR=stage.getBoundingClientRect();
+    const vx=fx=>sR.left+fx*sR.width, vy=fy=>sR.top+fy*sR.height;
+    const {P0,C1,A,C2,L}=shape;
+    guidePath.setAttribute('d', `M ${vx(P0.x)},${vy(P0.y)} Q ${vx(C1.x)},${vy(C1.y)} ${vx(A.x)},${vy(A.y)} Q ${vx(C2.x)},${vy(C2.y)} ${vx(L.x)},${vy(L.y)}`);
+    for(const k of ['C1','A','C2','L']){ const h=shape[k], c=handleMarks[k];
+      c.setAttribute('cx',vx(h.x)); c.setAttribute('cy',vy(h.y));
+      const on=k===activeHandle; c.setAttribute('r', on?'8':'5'); c.setAttribute('fill', on?'rgba(255,90,0,0.6)':'rgba(255,90,0,0.3)');
+      c.style.display=''; }
+  }
+  window.addEventListener('pointermove',(e)=>{ if(!draggingHandle||!shape||!activeHandle) return;
+    const r=stage.getBoundingClientRect();
+    shape[activeHandle]={ x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height };
+    redraw(); });
+  window.addEventListener('pointerup',()=>{ if(draggingHandle){ draggingHandle=false; for(const k in handleMarks) handleMarks[k].style.cursor='grab'; } });
+  document.querySelectorAll('.shapeBtn').forEach(b=>b.addEventListener('click',()=>{ if(!shape) return; activeHandle=b.dataset.h; highlightShapeBtns(); redraw(); }));
+
+  function setEditor(m){
+    shapeOn=(m==='shape');
+    const onCls='flex-1 rounded-md py-1.5 text-[12px] font-bold bg-primary text-ink transition-colors';
+    const offCls='flex-1 rounded-md py-1.5 text-[12px] font-bold text-mut hover:text-txt transition-colors';
+    tabAuto.className=shapeOn?offCls:onCls; tabShape.className=shapeOn?onCls:offCls;
+    autoOnly.classList.toggle('hidden', shapeOn);
+    shapeHint.classList.toggle('hidden', !shapeOn);
+    if(shapeOn && launchPts.length>=2 && landingPt && !shape){ buildShape(); activeHandle='A'; highlightShapeBtns(); }
+    shapePanel.classList.toggle('hidden', !(shapeOn && shape));
+    if(!(shapeOn && shape)) hideShapeHandles();
+    redraw();
+  }
+  tabAuto.addEventListener('click',()=>setEditor('auto'));
+  tabShape.addEventListener('click',()=>setEditor('shape'));
+
   // ---------- loop + draw ----------
   function startLoop(){
     stopLoop();
@@ -621,6 +725,16 @@
   function draw(mediaTime){
     const r=stage.getBoundingClientRect(); const W=r.width, H=r.height;
     octx.clearRect(0,0,overlay.width,overlay.height);
+    const t=(mediaTime!==undefined)?mediaTime:video.currentTime;
+    const absF=t*fps;
+
+    // SHAPE editor: draggable Bézier handles + ring rides the shaped curve
+    if(shapeOn && shape){
+      drawShape();
+      const p=ringAt(absF); if(p) drawRing(p.x*W,p.y*H);
+      return;
+    }
+    hideShapeHandles();
 
     // calibration markers (while plotting)
     if(!arc){
@@ -629,7 +743,7 @@
       return;
     }
 
-    // guide (paused only)
+    // auto-arc guide (paused only)
     const showGuide=guideChk.checked && arc && video.paused;
     apexHandle.style.display='none';
     if(!showGuide){ guideSvg.style.display='none'; }
@@ -646,22 +760,26 @@
       if(!arc.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'','#00e676');
     }
 
-    const t=(mediaTime!==undefined)?mediaTime:video.currentTime;
     // --- doughnut ring at the ball's current position (no trail) ---
-    const p=ringAt((arc.frame0)+(t-arc.t0)*fps);
+    const p=ringAt(absF);
     if(p) drawRing(p.x*W,p.y*H);
   }
 
   // Ring screen position (normalised 0..1) at a fractional absolute frame, applying
   // the launch→landing window, off-screen rule and optional park. null = not drawn.
+  // Uses the Shape curve when the Shape editor is active, else the auto arc.
   function ringAt(absF){
-    if(!arc) return null;
-    if(absF<arc.frame0-1e-6 || absF>arc.frame1+1e-6) return null;
-    const pos=trackPos(absF); let fx=pos.x, fy=pos.y;
+    const sh=shapeOn && shape;
+    const f0=sh?shape.launchFrame:(arc?arc.frame0:null);
+    const f1=sh?shape.landingFrame:(arc?arc.frame1:null);
+    if(f0==null) return null;
+    if(absF<f0-1e-6 || absF>f1+1e-6) return null;
+    const pf=sh?shapePos:trackPos;
+    const pos=pf(absF); let fx=pos.x, fy=pos.y;
     if(fx<0||fx>1||fy<0||fy>1){
       if(parkAtEdge){
         let pk=null;
-        for(let s=arc.frame0; s<=absF; s+=0.5){ const q=trackPos(s); if(q.x>=0&&q.x<=1&&q.y>=0&&q.y<=1) pk=q; else break; }
+        for(let s=f0; s<=absF; s+=0.5){ const q=pf(s); if(q.x>=0&&q.x<=1&&q.y>=0&&q.y<=1) pk=q; else break; }
         if(!pk) return null; return pk;
       }
       return null;
@@ -837,7 +955,7 @@
     const ringR=Math.max(2, vw*0.0065), ringW=Math.max(2, vw*0.004);
     function drawExportFrame(){
       ectx.drawImage(video,0,0,vw,vh);
-      const p=ringAt(arc.frame0+(video.currentTime-arc.t0)*fps);
+      const p=ringAt(video.currentTime*fps);
       if(p){
         ectx.save(); ectx.translate(p.x*vw, p.y*vh);
         ectx.shadowColor='rgba(255,90,0,0.9)'; ectx.shadowBlur=vw*0.01;
