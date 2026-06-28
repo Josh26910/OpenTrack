@@ -180,6 +180,9 @@
           <div class="ml-auto flex items-center gap-2">
             <span id="exportStatus" class="mono text-[11px] text-primary hidden"></span>
             <button id="playImpact" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-mut hover:text-txt transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
+            <button id="previewBtn" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors disabled:opacity-40 flex items-center gap-1.5" disabled>
+              <span class="material-symbols-outlined text-base">play_circle</span>Preview
+            </button>
             <button id="exportBtn" class="rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[12px] text-primary hover:bg-primary/25 transition-colors disabled:opacity-40 flex items-center gap-1.5" disabled>
               <span class="material-symbols-outlined text-base">download</span>Export clip
             </button>
@@ -243,9 +246,9 @@
           <div id="shapePanel" class="hidden telemetry-card rounded-lg p-3">
             <div class="mono text-[10px] text-mut2 uppercase mb-2">Shape the flight — pick a handle, drag the dot</div>
             <div class="grid grid-cols-2 gap-2">
-              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="C1">Curve 1st</button>
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="M1">Curve 1st</button>
               <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="A">Apex</button>
-              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="C2">Curve 2nd</button>
+              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="M2">Curve 2nd</button>
               <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="L">Landing</button>
             </div>
           </div>
@@ -295,7 +298,7 @@
   const stepBack=$('stepBack'), stepFwd=$('stepFwd');
   const seek=$('seek'), tCur=$('tCur'), tDur=$('tDur');
   const guideChk=$('guideChk'), freezeChk=$('freezeChk'), playImpact=$('playImpact');
-  const exportBtn=$('exportBtn'), exportStatus=$('exportStatus');
+  const exportBtn=$('exportBtn'), exportStatus=$('exportStatus'), previewBtn=$('previewBtn');
   const apexHandle=$('apexHandle');
   const metaRes=$('metaRes'), fpsInput=$('fpsInput'), dot=$('dot'), statusTxt=$('statusTxt');
   const lpCount=$('lpCount'), ldState=$('ldState');
@@ -310,7 +313,7 @@
 
   // body-level guide SVG (so it can extend above the video)
   const guideSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-  guideSvg.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:45;overflow:visible;display:none;';
+  guideSvg.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:60;overflow:visible;display:none;';
   document.body.appendChild(guideSvg);
   const guidePath=document.createElementNS('http://www.w3.org/2000/svg','path');
   guidePath.setAttribute('fill','none'); guidePath.setAttribute('stroke','rgba(255,255,255,0.35)');
@@ -319,10 +322,10 @@
   // draggable Shape-editor handle markers (Curve 1st / Apex / Curve 2nd / Landing)
   const SVGNS='http://www.w3.org/2000/svg';
   const handleMarks={};
-  ['C1','A','C2','L'].forEach(k=>{
+  ['M1','A','M2','L'].forEach(k=>{
     const c=document.createElementNS(SVGNS,'circle');
-    c.setAttribute('r','5'); c.setAttribute('fill','rgba(255,90,0,0.35)');
-    c.setAttribute('stroke','#fff'); c.setAttribute('stroke-width','1.5');
+    c.setAttribute('r','7'); c.setAttribute('fill','rgba(255,90,0,0.4)');
+    c.setAttribute('stroke','#fff'); c.setAttribute('stroke-width','2');
     c.setAttribute('class','shapeMark'); c.setAttribute('data-h',k);
     c.style.cssText='pointer-events:auto;cursor:grab;display:none;';
     c.addEventListener('pointerdown',(e)=>{ if(!shape) return; activeHandle=k; draggingHandle=true; try{c.setPointerCapture(e.pointerId);}catch(_){} highlightShapeBtns(); e.stopPropagation(); e.preventDefault(); redraw(); });
@@ -497,6 +500,7 @@
     else if(e.key===' '){ e.preventDefault(); playBtn.click(); }
   });
   playImpact.addEventListener('click',()=>{ if(arc){ video.currentTime=Math.max(0,arc.t0-0.05); video.play(); }});
+  previewBtn.addEventListener('click',()=>{ video.pause(); video.playbackRate=1; video.currentTime=0; video.play(); });
   freezeChk.addEventListener('change',()=>{ parkAtEdge=freezeChk.checked; redraw(); });
 
   function doNewClip(){
@@ -564,7 +568,7 @@
     playImpact.disabled=!arc;
     if(arc){ playImpact.style.opacity='1'; playImpact.style.pointerEvents=''; }
     else { playImpact.style.opacity='0.4'; playImpact.style.pointerEvents='none'; }
-    exportBtn.disabled=!arc; autoFind.disabled=!arc;
+    exportBtn.disabled=!arc; autoFind.disabled=!arc; previewBtn.disabled=!arc;
     redraw();
   }
 
@@ -596,7 +600,7 @@
       buildDot.className='h-2 w-2 rounded-full bg-green';
       setStatus('SHAPE READY',ST.ready); liveBadge.classList.remove('hidden');
       playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
-      exportBtn.disabled=false;
+      exportBtn.disabled=false; previewBtn.disabled=false;
       video.currentTime=Math.max(0,launchPts[0].t);
       redraw();
     } else { buildArc(); await refineAlongArc(); }
@@ -629,7 +633,7 @@
     setStatus('ARC READY',ST.ready);
     liveBadge.classList.remove('hidden');
     playImpact.disabled=false; playImpact.style.opacity='1'; playImpact.style.pointerEvents='';
-    exportBtn.disabled=false; autoFind.disabled=false;
+    exportBtn.disabled=false; autoFind.disabled=false; previewBtn.disabled=false;
     video.currentTime=Math.max(0,first.t);
   }
 
@@ -675,6 +679,11 @@
   }
   function hideShapeHandles(){ for(const k in handleMarks) handleMarks[k].style.display='none'; }
   function highlightShapeBtns(){ document.querySelectorAll('.shapeBtn').forEach(b=>{ const on=b.dataset.h===activeHandle; b.style.borderColor=on?'#ff5a00':''; b.style.color=on?'#ff5a00':''; }); }
+  // Handle points sit ON the dotted line: midpoint of each half, the apex, the landing.
+  function shapeHandlePts(){
+    const {P0,C1,A,C2,L}=shape;
+    return { M1:bez(P0,C1,A,0.5), A:{x:A.x,y:A.y}, M2:bez(A,C2,L,0.5), L:{x:L.x,y:L.y} };
+  }
   function drawShape(){
     apexHandle.style.display='none';
     guideSvg.style.display='';
@@ -682,14 +691,26 @@
     const vx=fx=>sR.left+fx*sR.width, vy=fy=>sR.top+fy*sR.height;
     const {P0,C1,A,C2,L}=shape;
     guidePath.setAttribute('d', `M ${vx(P0.x)},${vy(P0.y)} Q ${vx(C1.x)},${vy(C1.y)} ${vx(A.x)},${vy(A.y)} Q ${vx(C2.x)},${vy(C2.y)} ${vx(L.x)},${vy(L.y)}`);
-    for(const k of ['C1','A','C2','L']){ const h=shape[k], c=handleMarks[k];
-      c.setAttribute('cx',vx(h.x)); c.setAttribute('cy',vy(h.y));
-      const on=k===activeHandle; c.setAttribute('r', on?'8':'5'); c.setAttribute('fill', on?'rgba(255,90,0,0.6)':'rgba(255,90,0,0.3)');
+    // keep handles reachable even when the arc goes above the video / off-screen
+    const vw=window.innerWidth, vh=window.innerHeight;
+    const cX=x=>Math.max(16,Math.min(vw-16,x)), cY=y=>Math.max(76,Math.min(vh-16,y));
+    const pts=shapeHandlePts();
+    for(const k of ['M1','A','M2','L']){ const h=pts[k], c=handleMarks[k];
+      c.setAttribute('cx', cX(vx(h.x))); c.setAttribute('cy', cY(vy(h.y)));
+      const on=k===activeHandle; c.setAttribute('r', on?'9':'7'); c.setAttribute('fill', on?'rgba(255,90,0,0.75)':'rgba(255,90,0,0.4)');
       c.style.display=''; }
   }
+  // Dragging an on-curve handle bends that part of the flight (recompute control pts).
   window.addEventListener('pointermove',(e)=>{ if(!draggingHandle||!shape||!activeHandle) return;
     const r=stage.getBoundingClientRect();
-    shape[activeHandle]={ x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height };
+    const vw=window.innerWidth, vh=window.innerHeight;
+    const cx=Math.max(16,Math.min(vw-16,e.clientX)), cy=Math.max(76,Math.min(vh-16,e.clientY));
+    const p={ x:(cx-r.left)/r.width, y:(cy-r.top)/r.height };
+    const {P0}=shape;
+    if(activeHandle==='A') shape.A={x:p.x,y:p.y};
+    else if(activeHandle==='L') shape.L={x:p.x,y:p.y};
+    else if(activeHandle==='M1') shape.C1={x:2*p.x-0.5*(P0.x+shape.A.x), y:2*p.y-0.5*(P0.y+shape.A.y)};
+    else if(activeHandle==='M2') shape.C2={x:2*p.x-0.5*(shape.A.x+shape.L.x), y:2*p.y-0.5*(shape.A.y+shape.L.y)};
     redraw(); });
   window.addEventListener('pointerup',()=>{ if(draggingHandle){ draggingHandle=false; for(const k in handleMarks) handleMarks[k].style.cursor='grab'; } });
   document.querySelectorAll('.shapeBtn').forEach(b=>b.addEventListener('click',()=>{ if(!shape) return; activeHandle=b.dataset.h; highlightShapeBtns(); redraw(); }));
