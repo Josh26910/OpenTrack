@@ -566,13 +566,20 @@
     const exVx=(b.fx-a.fx)/segDf, exVy=(b.fy-a.fy)/segDf;
     const xL=b.fx, yL=b.fy, fL=b.frame;
     const tauLand=Math.max(1,landingPt.frame-fL);
-    let cvx,g;
-    if(landingPt.offscreen){ cvx=exVx; g=-2*exVy/tauLand; }
-    else { cvx=(landingPt.fx-xL)/tauLand; g=2*(landingPt.fy-yL-exVy*tauLand)/(tauLand*tauLand); }
+    // Continuation after the last clicked point is a full 2D parabola that LEAVES in
+    // the launch direction (vx,vy from the last segment) and curves to hit the
+    // landing. The horizontal "ax" term is the lateral curve — it lets the flight
+    // bend sideways for a pull/cut/draw/fade instead of running dead straight.
+    let ax, g;
+    if(landingPt.offscreen){ ax=0; g=-2*exVy/tauLand; }   // no landing x to curve toward
+    else {
+      ax=2*(landingPt.fx-xL-exVx*tauLand)/(tauLand*tauLand);   // lateral curvature → hit landing x
+      g =2*(landingPt.fy-yL-exVy*tauLand)/(tauLand*tauLand);   // gravity → hit landing y
+    }
     if(!(g>0)) g=0.0008;
     arc={ frame0:first.frame, frame1:landingPt.frame, t0:first.t, t1:landingPt.t,
           N:Math.max(1,landingPt.frame-first.frame),
-          contFrame:fL, contX:xL, contY:yL, contVx:cvx, contVy:exVy, contG:g,
+          contFrame:fL, contX:xL, contY:yL, contVx:exVx, contAx:ax, contVy:exVy, contG:g,
           offscreen:!!landingPt.offscreen };
     setMode('idle');
     buildDot.className='h-2 w-2 rounded-full bg-green';
@@ -594,7 +601,8 @@
       return {x:lo.fx+a*(hi.fx-lo.fx), y:lo.fy+a*(hi.fy-lo.fy)};
     }
     const tau=absF-arc.contFrame;
-    return { x:arc.contX+arc.contVx*tau, y:arc.contY+arc.contVy*tau+0.5*arc.contG*tau*tau };
+    return { x:arc.contX+arc.contVx*tau+0.5*arc.contAx*tau*tau,   // lateral curve
+             y:arc.contY+arc.contVy*tau+0.5*arc.contG*tau*tau };  // gravity
   }
 
   // ---------- loop + draw ----------
@@ -755,7 +763,7 @@
       const {cand,w,h}=scan; let total=0;
       for(let pass=0; pass<3; pass++){
         const have={}; for(const p of launchPts) have[p.frame]=1;
-        const tolPx=Math.max(8, w*(pass===0?0.11:0.06));   // search window tightens each pass
+        const tolPx=Math.max(7, w*(pass===0?0.07:0.045));  // tight window: stay on the arc, ignore body
         const found=[];
         for(let f=Math.round(arc.frame0)+1; f<arc.frame1 && f<cand.length; f++){
           if(have[f]) continue;
