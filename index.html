@@ -241,11 +241,16 @@
               <button id="undoPt" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[13px] text-mut hover:text-txt transition-colors">Undo</button>
             </div>
             <div id="autoOnly">
+              <label class="flex items-center gap-2 mt-2.5 text-[12px] text-txt cursor-pointer select-none">
+                <input id="autoFindChk" type="checkbox" class="accent-primary" style="width:15px;height:15px;" checked />
+                <span class="material-symbols-outlined text-primary text-base">auto_awesome</span>
+                Auto-find the ball from the video
+              </label>
+              <p class="text-[10px] text-mut2 mt-1 leading-relaxed">On — Build detects the real ball along your arc and fills it in. Off — Build just uses the exact points you plotted.</p>
               <button id="autoFind" class="w-full mt-2 rounded-lg bg-primary/15 border border-primary/40 px-3 py-1.5 text-[13px] font-semibold text-primary hover:bg-primary/25 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40" disabled>
                 <span class="material-symbols-outlined text-base">auto_awesome</span> Auto-fill along arc
               </button>
-              <p class="text-[10px] text-mut2 mt-1.5 leading-relaxed">Plot 2–4 launch points + the landing and Build — the arc is auto-filled with the real ball detected from the video. Re-run anytime with this button.</p>
-              <p id="autoStatus" class="text-[10px] text-mut2 mt-1 leading-relaxed hidden"></p>
+              <p id="autoStatus" class="text-[10px] text-mut2 mt-1.5 leading-relaxed hidden"></p>
             </div>
             <p id="shapeHint" class="text-[10px] text-mut2 mt-2 leading-relaxed hidden">Plot 2–4 launch points + the landing, then Build — then drag the handles below to shape the flight by eye.</p>
           </div>
@@ -332,6 +337,7 @@
   const offscreenFrame=$('offscreenFrame'), offscreenSet=$('offscreenSet'), offscreenHint=$('offscreenHint');
   const autoFind=$('autoFind'), autoStatus=$('autoStatus');
   const tabAuto=$('tabAuto'), tabShape=$('tabShape'), shapePanel=$('shapePanel'), autoOnly=$('autoOnly'), shapeHint=$('shapeHint');
+  const autoFindChk=$('autoFindChk');
   const telemetryGrid=$('telemetryGrid'), optimizerText=$('optimizerText'), applyShot=$('applyShot');
   const shotList=$('shotList'), newSession=$('newSession');
 
@@ -627,7 +633,11 @@
       exportBtn.disabled=false; previewBtn.disabled=false;
       video.currentTime=Math.max(0,launchPts[0].t);
       redraw();
-    } else { buildArc(); await refineAlongArc(); }
+    } else {
+      buildArc();
+      if(autoFindChk.checked) await refineAlongArc();
+      else setAutoStatus('Manual arc — using the '+launchPts.length+' points you plotted (auto-find off).', 'ok');
+    }
   });
   function buildArc(){
     if(launchPts.length<2 || !landingPt) return;
