@@ -201,6 +201,11 @@
           <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
             <input id="freezeChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Park at edge
           </label>
+          <div class="flex items-center gap-1 ml-2">
+            <span class="mono text-[10px] text-mut2 mr-0.5">ROTATE</span>
+            <button id="rotLeft" title="Rotate left" class="grid place-items-center rounded-lg border border-line bg-card2 text-txt hover:border-primary/60 hover:text-primary transition-colors disabled:opacity-40" style="width:30px;height:30px;" disabled><span class="material-symbols-outlined text-base">rotate_left</span></button>
+            <button id="rotRight" title="Rotate right" class="grid place-items-center rounded-lg border border-line bg-card2 text-txt hover:border-primary/60 hover:text-primary transition-colors disabled:opacity-40" style="width:30px;height:30px;" disabled><span class="material-symbols-outlined text-base">rotate_right</span></button>
+          </div>
           <div class="ml-auto flex items-center gap-2">
             <span id="exportStatus" class="mono text-[11px] text-primary hidden"></span>
             <button id="playImpact" class="rounded-lg bg-card2 border border-line px-3 py-1.5 text-[12px] text-mut hover:text-txt transition-colors" style="opacity:.4;pointer-events:none;" disabled>Play from impact</button>
@@ -328,6 +333,7 @@
   const seek=$('seek'), tCur=$('tCur'), tDur=$('tDur');
   const guideChk=$('guideChk'), freezeChk=$('freezeChk'), playImpact=$('playImpact');
   const exportBtn=$('exportBtn'), exportStatus=$('exportStatus'), previewBtn=$('previewBtn');
+  const rotLeft=$('rotLeft'), rotRight=$('rotRight');
   const apexHandle=$('apexHandle');
   const metaRes=$('metaRes'), fpsInput=$('fpsInput'), dot=$('dot'), statusTxt=$('statusTxt');
   const lpCount=$('lpCount'), ldState=$('ldState');
@@ -377,6 +383,7 @@
   let shots=[];
   let lastScan=null, autoBusy=false;   // cached frame analysis for the auto ball finder
   let shapeOn=false, shape=null, activeHandle=null, draggingHandle=false;   // manual Shape editor
+  let rotation=0;                       // displayed video rotation (0/90/180/270, degrees CW)
 
   const once=(el,ev)=>new Promise(res=>el.addEventListener(ev,res,{once:true}));
   const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -491,8 +498,10 @@
     dropZone.classList.add('hidden'); stageWrap.classList.remove('hidden'); transport.classList.remove('hidden');
     metaRes.textContent=video.videoWidth+'×'+video.videoHeight; metaRes.classList.remove('hidden');
     tDur.textContent=video.duration.toFixed(2);
-    lastScan=null; setAutoStatus(null);
-    resizeOverlay(); resetCalibration(); setStatus('LOADED',ST.load); setMode('launch'); startLoop();
+    lastScan=null; setAutoStatus(null); rotation=0;
+    applyRotation(); resetCalibration(); setStatus('LOADED',ST.load); setMode('launch'); startLoop();
+    rotLeft.disabled=false; rotRight.disabled=false;
+    requestAnimationFrame(applyRotation);   // re-fit once layout settles
   });
   video.addEventListener('play',()=>{ playIcon.style.display='none'; pauseIcon.style.display=''; });
   video.addEventListener('pause',()=>{ playIcon.style.display=''; pauseIcon.style.display='none'; });
@@ -505,6 +514,36 @@
     overlay.width=Math.round(r.width*dpr); overlay.height=Math.round(r.height*dpr);
     octx.setTransform(dpr,0,0,dpr,0,0);
   }
+  // Size the stage to the displayed (rotated) frame and rotate the video to fit.
+  // All plotting/drawing stays in the displayed-frame box, so nothing else changes.
+  function applyRotation(){
+    if(!video.videoWidth) return;
+    const r=((rotation%360)+360)%360, swap=(r===90||r===270);
+    const vw=video.videoWidth, vh=video.videoHeight;
+    const frameW=swap?vh:vw, frameH=swap?vw:vh;
+    const availW=stageWrap.clientWidth||frameW, availH=stageWrap.clientHeight||frameH;
+    const scale=Math.min(availW/frameW, availH/frameH)||1;
+    const dispW=Math.max(1,Math.round(frameW*scale)), dispH=Math.max(1,Math.round(frameH*scale));
+    stage.style.width=dispW+'px'; stage.style.height=dispH+'px';
+    const preW=swap?dispH:dispW, preH=swap?dispW:dispH;
+    Object.assign(video.style,{position:'absolute',left:'50%',top:'50%',maxWidth:'none',maxHeight:'none',
+      width:preW+'px',height:preH+'px',transformOrigin:'center center',transform:`translate(-50%,-50%) rotate(${r}deg)`});
+    resizeOverlay(); redraw();
+  }
+  // Rotate the displayed video and carry any plotted points/shape with it.
+  function rotateBy(cw){
+    const map = cw>0 ? (p=>({x:1-p.y,y:p.x})) : (p=>({x:p.y,y:1-p.x}));
+    launchPts.forEach(o=>{ const m=map({x:o.fx,y:o.fy}); o.fx=m.x; o.fy=m.y; });
+    if(landingPt && !landingPt.offscreen){ const m=map({x:landingPt.fx,y:landingPt.fy}); landingPt.fx=m.x; landingPt.fy=m.y; }
+    if(shape){ for(const k of ['P0','C1','A','C2','L']){ const m=map(shape[k]); shape[k]={x:m.x,y:m.y}; } }
+    rotation=(((rotation + (cw>0?90:-90))%360)+360)%360;
+    applyRotation();
+    if(arc && !shapeOn) buildArc();    // recompute arc from the rotated points
+    redraw();
+  }
+  rotLeft.addEventListener('click',()=>rotateBy(-1));
+  rotRight.addEventListener('click',()=>rotateBy(1));
+  window.addEventListener('resize',applyRotation);
   window.addEventListener('resize',resizeOverlay);
   function redraw(){ if(stageWrap.classList.contains('hidden')) return; draw(video.currentTime); }
   window.addEventListener('resize',redraw);
@@ -537,7 +576,7 @@
     stopLoop(); stageWrap.classList.add('hidden'); transport.classList.add('hidden'); dropZone.classList.remove('hidden');
     video.removeAttribute('src'); video.load(); fileInput.value='';
     if(curURL){ URL.revokeObjectURL(curURL); curURL=null; }
-    lastScan=null; setAutoStatus(null);
+    lastScan=null; setAutoStatus(null); rotation=0; rotLeft.disabled=true; rotRight.disabled=true;
     resetCalibration(); setStatus('IDLE',ST.idle);
   }
 
@@ -1005,15 +1044,20 @@
     }
     exporting=true;
     const vw=video.videoWidth, vh=video.videoHeight;
-    const ecan=document.createElement('canvas'); ecan.width=vw; ecan.height=vh;
+    const swap=(rotation%180!==0);
+    const ew=swap?vh:vw, eh=swap?vw:vh;                 // exported (displayed) frame size
+    const ecan=document.createElement('canvas'); ecan.width=ew; ecan.height=eh;
     const ectx=ecan.getContext('2d');
-    const ringR=Math.max(2, vw*0.0065), ringW=Math.max(2, vw*0.004);
+    const ringR=Math.max(2, ew*0.0065), ringW=Math.max(2, ew*0.004);
     function drawExportFrame(){
-      ectx.drawImage(video,0,0,vw,vh);
+      ectx.save();                                       // draw the video rotated to match the display
+      ectx.translate(ew/2, eh/2); ectx.rotate(rotation*Math.PI/180);
+      ectx.drawImage(video, -vw/2, -vh/2, vw, vh);
+      ectx.restore();
       const p=ringAt(video.currentTime*fps);
       if(p){
-        ectx.save(); ectx.translate(p.x*vw, p.y*vh);
-        ectx.shadowColor='rgba(255,90,0,0.9)'; ectx.shadowBlur=vw*0.01;
+        ectx.save(); ectx.translate(p.x*ew, p.y*eh);
+        ectx.shadowColor='rgba(255,90,0,0.9)'; ectx.shadowBlur=ew*0.01;
         ectx.beginPath(); ectx.arc(0,0,ringR,0,Math.PI*2); ectx.strokeStyle='#ff5a00'; ectx.lineWidth=ringW; ectx.stroke();
         ectx.restore();
       }
