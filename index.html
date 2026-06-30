@@ -873,8 +873,17 @@
       const vx=fx=>sR.left+fx*sR.width, vy=fy=>sR.top+fy*sR.height;
       let d='M '+vx(launchPts[0].fx)+','+vy(launchPts[0].fy);
       for(let i=1;i<launchPts.length;i++) d+=' L '+vx(launchPts[i].fx)+','+vy(launchPts[i].fy);
-      const fLast=launchPts[launchPts.length-1].frame, steps=28;
-      for(let k=1;k<=steps;k++){ const q=trackPos(fLast+(arc.frame1-fLast)*(k/steps)); d+=' L '+vx(q.x)+','+vy(q.y); }
+      const fLast=launchPts[launchPts.length-1].frame;
+      // Fine-grained steps so the guide resolves clearly even at 240fps.
+      // Stop (and snap to boundary) the moment the ball exits the frame —
+      // prevents the guide SVG drawing over the UI outside the video area.
+      const arcSteps=Math.min(300, Math.max(80, Math.abs(arc.frame1-fLast)));
+      for(let k=1;k<=arcSteps;k++){
+        const q=trackPos(fLast+(arc.frame1-fLast)*(k/arcSteps));
+        const out=q.x<0||q.x>1||q.y<0||q.y>1;
+        d+=' L '+vx(Math.max(0,Math.min(1,q.x)))+','+vy(Math.max(0,Math.min(1,q.y)));
+        if(out) break;  // one clamped point at the boundary, then stop
+      }
       guidePath.setAttribute('d',d);
       launchPts.forEach(p=>drawMarker(p.fx*W,p.fy*H,'','#ff5a00',W));
       if(!arc.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'','#00e676',W);
