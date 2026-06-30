@@ -201,6 +201,9 @@
           <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
             <input id="freezeChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Park at edge
           </label>
+          <label class="flex items-center gap-1.5 text-[12px] text-mut cursor-pointer select-none ml-2">
+            <input id="clampChk" type="checkbox" class="accent-primary" style="width:14px;height:14px;" /> Stay in frame
+          </label>
           <div class="flex items-center gap-1 ml-2">
             <span class="mono text-[10px] text-mut2 mr-0.5">ROTATE</span>
             <button id="rotLeft" title="Rotate left" class="grid place-items-center rounded-lg border border-line bg-card2 text-txt hover:border-primary/60 hover:text-primary transition-colors disabled:opacity-40" style="width:30px;height:30px;" disabled><span class="material-symbols-outlined text-base">rotate_left</span></button>
@@ -331,7 +334,7 @@
   const playBtn=$('playBtn'), playIcon=$('playIcon'), pauseIcon=$('pauseIcon');
   const stepBack=$('stepBack'), stepFwd=$('stepFwd');
   const seek=$('seek'), tCur=$('tCur'), tDur=$('tDur');
-  const guideChk=$('guideChk'), freezeChk=$('freezeChk'), playImpact=$('playImpact');
+  const guideChk=$('guideChk'), freezeChk=$('freezeChk'), clampChk=$('clampChk'), playImpact=$('playImpact');
   const exportBtn=$('exportBtn'), exportStatus=$('exportStatus'), previewBtn=$('previewBtn');
   const rotLeft=$('rotLeft'), rotRight=$('rotRight');
   const apexHandle=$('apexHandle');
@@ -374,7 +377,7 @@
   let launchPts=[];                // [{frame,t,fx,fy}]
   let landingPt=null;              // {frame,t,fx,fy} | {frame,t,offscreen:true}
   let arc=null;                    // tracking model
-  let parkAtEdge=false;
+  let parkAtEdge=false, clampToFrame=false;
   let dragApex=false;
   let curURL=null;
   let rvfcId=null, rafId=null;
@@ -577,6 +580,7 @@
   playImpact.addEventListener('click',()=>{ if(arc){ video.currentTime=Math.max(0,arc.t0-0.05); video.play(); }});
   previewBtn.addEventListener('click',()=>{ video.pause(); video.playbackRate=1; video.currentTime=0; video.play(); });
   freezeChk.addEventListener('change',()=>{ parkAtEdge=freezeChk.checked; redraw(); });
+  clampChk.addEventListener('change',()=>{ clampToFrame=clampChk.checked; redraw(); });
 
   function doNewClip(){
     stopLoop(); stageWrap.classList.add('hidden'); transport.classList.add('hidden'); dropZone.classList.remove('hidden');
@@ -838,8 +842,8 @@
 
     // calibration markers (while plotting)
     if(!arc){
-      launchPts.forEach((p,i)=>drawMarker(p.fx*W,p.fy*H,String(i+1),'#ff5a00'));
-      if(landingPt && !landingPt.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'L','#00e676');
+      launchPts.forEach((p,i)=>drawMarker(p.fx*W,p.fy*H,String(i+1),'#ff5a00',W));
+      if(landingPt && !landingPt.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'L','#00e676',W);
       return;
     }
 
@@ -856,8 +860,8 @@
       const fLast=launchPts[launchPts.length-1].frame, steps=28;
       for(let k=1;k<=steps;k++){ const q=trackPos(fLast+(arc.frame1-fLast)*(k/steps)); d+=' L '+vx(q.x)+','+vy(q.y); }
       guidePath.setAttribute('d',d);
-      launchPts.forEach(p=>drawMarker(p.fx*W,p.fy*H,'','#ff5a00'));
-      if(!arc.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'','#00e676');
+      launchPts.forEach(p=>drawMarker(p.fx*W,p.fy*H,'','#ff5a00',W));
+      if(!arc.offscreen) drawMarker(landingPt.fx*W,landingPt.fy*H,'','#00e676',W);
     }
 
     // --- doughnut ring at the ball's current position (no trail) ---
@@ -877,6 +881,7 @@
     const pf=sh?shapePos:trackPos;
     const pos=pf(absF); let fx=pos.x, fy=pos.y;
     if(fx<0||fx>1||fy<0||fy>1){
+      if(clampToFrame) return {x:Math.max(0,Math.min(1,fx)), y:Math.max(0,Math.min(1,fy))};
       if(parkAtEdge){
         let pk=null;
         for(let s=f0; s<=absF; s+=0.5){ const q=pf(s); if(q.x>=0&&q.x<=1&&q.y>=0&&q.y<=1) pk=q; else break; }
@@ -887,11 +892,19 @@
     return {x:fx,y:fy};
   }
 
-  function drawMarker(x,y,label,color){
+  function drawMarker(x,y,label,color,stageW){
     octx.save(); octx.translate(x,y);
-    octx.beginPath(); octx.arc(0,0,7,0,Math.PI*2); octx.strokeStyle=color; octx.lineWidth=2; octx.stroke();
-    octx.beginPath(); octx.arc(0,0,1.6,0,Math.PI*2); octx.fillStyle=color; octx.fill();
-    if(label){ octx.fillStyle='#fff'; octx.font='700 10px Inter, sans-serif'; octx.textAlign='center'; octx.fillText(label,0,-11); }
+    // Small filled dot — just enough to mark the ball without obscuring it
+    octx.beginPath(); octx.arc(0,0,4,0,Math.PI*2); octx.fillStyle=color; octx.fill();
+    if(label){
+      const toRight=!stageW || x<stageW/2;   // put number on the less-crowded side
+      octx.font='700 11px Inter, sans-serif'; octx.textBaseline='middle';
+      octx.textAlign=toRight?'left':'right';
+      octx.shadowColor='rgba(0,0,0,0.9)'; octx.shadowBlur=3;
+      octx.fillStyle=color;
+      octx.fillText(label, toRight?8:-8, 0);
+      octx.shadowBlur=0;
+    }
     octx.restore();
   }
   function drawRing(x,y){
