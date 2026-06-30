@@ -563,10 +563,16 @@
   }));
   window.addEventListener('keydown',(e)=>{
     if(stageWrap.classList.contains('hidden')) return;
-    if(e.target.tagName==='INPUT') return;
-    if(e.key==='ArrowRight'){ e.preventDefault(); stepFwd.click(); }
-    else if(e.key==='ArrowLeft'){ e.preventDefault(); stepBack.click(); }
-    else if(e.key===' '){ e.preventDefault(); playBtn.click(); }
+    const active=document.activeElement;
+    if(active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName)) return;
+    if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+      e.preventDefault();
+      if(active && active!==document.body) active.blur();
+      video.pause();
+      video.currentTime=e.key==='ArrowRight'
+        ?Math.min(video.duration||0,video.currentTime+frameDur())
+        :Math.max(0,video.currentTime-frameDur());
+    } else if(e.key===' '){ e.preventDefault(); playBtn.click(); }
   });
   playImpact.addEventListener('click',()=>{ if(arc){ video.currentTime=Math.max(0,arc.t0-0.05); video.play(); }});
   previewBtn.addEventListener('click',()=>{ video.pause(); video.playbackRate=1; video.currentTime=0; video.play(); });
