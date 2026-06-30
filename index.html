@@ -691,10 +691,21 @@
   function buildArc(){
     if(launchPts.length<2 || !landingPt) return;
     const first=launchPts[0];
-    const a=launchPts[launchPts.length-2], b=launchPts[launchPts.length-1];
-    const segDf=Math.max(1,b.frame-a.frame);
-    const exVx=(b.fx-a.fx)/segDf, exVy=(b.fy-a.fy)/segDf;
-    const xL=b.fx, yL=b.fy, fL=b.frame;
+    const nPts=launchPts.length;
+    const fRef=launchPts[nPts-1].frame;
+    const xL=launchPts[nPts-1].fx, yL=launchPts[nPts-1].fy, fL=fRef;
+    // Linear regression over all launch points — avoids severe underestimation
+    // when the last two points happen to be near the apex (near-zero delta).
+    let sumT=0,sumT2=0,sumFx=0,sumFxT=0,sumFy=0,sumFyT=0;
+    for(const p of launchPts){
+      const t=p.frame-fRef;
+      sumT+=t; sumT2+=t*t; sumFx+=p.fx; sumFxT+=p.fx*t; sumFy+=p.fy; sumFyT+=p.fy*t;
+    }
+    const regDet=nPts*sumT2-sumT*sumT;
+    const fba=launchPts[nPts-2], fbb=launchPts[nPts-1];
+    const fallDf=Math.max(1,fbb.frame-fba.frame);
+    const exVx=regDet>1e-12?(nPts*sumFxT-sumT*sumFx)/regDet:(fbb.fx-fba.fx)/fallDf;
+    const exVy=regDet>1e-12?(nPts*sumFyT-sumT*sumFy)/regDet:(fbb.fy-fba.fy)/fallDf;
     const tauLand=Math.max(1,landingPt.frame-fL);
     // Continuation after the last clicked point is a full 2D parabola that LEAVES in
     // the launch direction (vx,vy from the last segment) and curves to hit the
