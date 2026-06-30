@@ -281,9 +281,8 @@
             <span id="buildDot" class="h-2 w-2 rounded-full bg-mut2"></span> Build trajectory
           </button>
           <div id="shapePanel" class="hidden telemetry-card rounded-lg p-3">
-            <div class="mono text-[10px] text-mut2 uppercase mb-2">Shape the flight — pick a handle, drag the dot</div>
-            <div class="grid grid-cols-2 gap-2">
-              <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="M1">Curve 1st</button>
+            <div class="mono text-[10px] text-mut2 uppercase mb-2">Apex height · descent curve · landing</div>
+            <div class="grid grid-cols-3 gap-2">
               <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="A">Apex</button>
               <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="M2">Curve 2nd</button>
               <button class="shapeBtn rounded-lg bg-card2 border border-line px-2 py-1.5 text-[12px] text-txt hover:border-primary/60 transition-colors" data-h="L">Landing</button>
@@ -538,7 +537,8 @@
     const map = cw>0 ? (p=>({x:1-p.y,y:p.x})) : (p=>({x:p.y,y:1-p.x}));
     launchPts.forEach(o=>{ const m=map({x:o.fx,y:o.fy}); o.fx=m.x; o.fy=m.y; });
     if(landingPt && !landingPt.offscreen){ const m=map({x:landingPt.fx,y:landingPt.fy}); landingPt.fx=m.x; landingPt.fy=m.y; }
-    if(shape){ for(const k of ['P0','C1','A','C2','L']){ const m=map(shape[k]); shape[k]={x:m.x,y:m.y}; } }
+    if(shape){ for(const k of ['P0','C1','A','C2','L']){ const m=map(shape[k]); shape[k]={x:m.x,y:m.y}; }
+      for(const k of ['_baseP0','_baseA','_baseC1']){ if(shape[k]){ const m=map(shape[k]); shape[k]={x:m.x,y:m.y}; } } }
     rotation=(((rotation + (cw>0?90:-90))%360)+360)%360;
     applyRotation();
     if(arc && !shapeOn) buildArc();    // recompute arc from the rotated points
@@ -769,7 +769,8 @@
     const A=trackPos(apexFrame), m1=trackPos((f0+apexFrame)/2), m2=trackPos((apexFrame+f1)/2);
     const C1={x:2*m1.x-0.5*(P0.x+A.x), y:2*m1.y-0.5*(P0.y+A.y)};   // pass through arc mid initially
     const C2={x:2*m2.x-0.5*(A.x+L.x), y:2*m2.y-0.5*(A.y+L.y)};
-    shape={ launchFrame:f0, landingFrame:f1, apexFrame, P0, C1, A:{x:A.x,y:A.y}, C2, L };
+    shape={ launchFrame:f0, landingFrame:f1, apexFrame, P0, C1, A:{x:A.x,y:A.y}, C2, L,
+            _baseP0:{x:P0.x,y:P0.y}, _baseA:{x:A.x,y:A.y}, _baseC1:{x:C1.x,y:C1.y} };
   }
   function hideShapeHandles(){ for(const k in handleMarks) handleMarks[k].style.display='none'; }
   function highlightShapeBtns(){ document.querySelectorAll('.shapeBtn').forEach(b=>{ const on=b.dataset.h===activeHandle; b.style.borderColor=on?'#ff5a00':''; b.style.color=on?'#ff5a00':''; }); }
@@ -789,10 +790,11 @@
     const vw=window.innerWidth, vh=window.innerHeight;
     const cX=x=>Math.max(16,Math.min(vw-16,x)), cY=y=>Math.max(76,Math.min(vh-16,y));
     const pts=shapeHandlePts();
-    for(const k of ['M1','A','M2','L']){ const h=pts[k], c=handleMarks[k];
+    for(const k of ['A','M2','L']){ const h=pts[k], c=handleMarks[k];
       c.setAttribute('cx', cX(vx(h.x))); c.setAttribute('cy', cY(vy(h.y)));
       const on=k===activeHandle; c.setAttribute('r', on?'9':'7'); c.setAttribute('fill', on?'rgba(255,90,0,0.75)':'rgba(255,90,0,0.4)');
       c.style.display=''; }
+    handleMarks['M1'].style.display='none';
   }
   // Dragging an on-curve handle bends that part of the flight (recompute control pts).
   window.addEventListener('pointermove',(e)=>{ if(!draggingHandle||!shape||!activeHandle) return;
@@ -801,9 +803,16 @@
     const cx=Math.max(16,Math.min(vw-16,e.clientX)), cy=Math.max(76,Math.min(vh-16,e.clientY));
     const p={ x:(cx-r.left)/r.width, y:(cy-r.top)/r.height };
     const {P0}=shape;
-    if(activeHandle==='A') shape.A={x:p.x,y:p.y};
-    else if(activeHandle==='L') shape.L={x:p.x,y:p.y};
-    else if(activeHandle==='M1') shape.C1={x:2*p.x-0.5*(P0.x+shape.A.x), y:2*p.y-0.5*(P0.y+shape.A.y)};
+    if(activeHandle==='A'){
+      // Lock X to auto-arc apex; only height (Y) is user-controlled.
+      // Scale C1 vertically from P0 so launch direction stays fixed.
+      shape.A={x:shape._baseA.x, y:p.y};
+      const dBase=shape._baseA.y-shape._baseP0.y;
+      if(Math.abs(dBase)>1e-6){
+        const sc=(shape.A.y-shape._baseP0.y)/dBase;
+        shape.C1={x:shape._baseC1.x, y:shape._baseP0.y+sc*(shape._baseC1.y-shape._baseP0.y)};
+      }
+    } else if(activeHandle==='L') shape.L={x:p.x,y:p.y};
     else if(activeHandle==='M2') shape.C2={x:2*p.x-0.5*(shape.A.x+shape.L.x), y:2*p.y-0.5*(shape.A.y+shape.L.y)};
     redraw(); });
   window.addEventListener('pointerup',()=>{ if(draggingHandle){ draggingHandle=false; for(const k in handleMarks) handleMarks[k].style.cursor='grab'; } });
