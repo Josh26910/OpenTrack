@@ -107,6 +107,19 @@ def _put_text_centered(img, text, cx, cy_baseline, scale, color, thickness,
     return org, tw
 
 
+def _rotate_frame(frame, degrees):
+    """Rotate frame by 0, 90, 180, or 270 degrees clockwise."""
+    if degrees == 0:
+        return frame
+    if degrees == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if degrees == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    if degrees == 270:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return frame
+
+
 # --------------------------------------------------------------------------- #
 #  Main application
 # --------------------------------------------------------------------------- #
@@ -131,6 +144,7 @@ class LaunchMonitorApp(ctk.CTk):
         self.frame_w = 0
         self.frame_h = 0
         self.current_idx = 0
+        self.rotation = 0              # 0, 90, 180, 270 degrees
 
         self._cached_idx = -1
         self._cached_frame = None      # raw BGR frame at _cached_idx
@@ -230,6 +244,29 @@ class LaunchMonitorApp(ctk.CTk):
             text_color=FG_MUTED, justify="left", anchor="w", wraplength=250,
         )
         self.video_info_lbl.pack(fill="x", padx=16, pady=(0, 6))
+
+        # -- rotation -------------------------------------------------------
+        rot_row = ctk.CTkFrame(sb, fg_color="transparent")
+        rot_row.pack(fill="x", padx=16, pady=(4, 4))
+        ctk.CTkButton(
+            rot_row, text="↺", width=44, height=34,
+            fg_color=BG_WIDGET, hover_color=BG_PANEL_2,
+            border_color=BORDER, border_width=1,
+            text_color=FG_TEXT, font=ctk.CTkFont(size=16, weight="bold"),
+            command=self._rotate_ccw,
+        ).pack(side="left", padx=2)
+        self.rotation_lbl = ctk.CTkLabel(
+            rot_row, text="0°", font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TM_ORANGE, width=60,
+        )
+        self.rotation_lbl.pack(side="left", padx=4)
+        ctk.CTkButton(
+            rot_row, text="↻", width=44, height=34,
+            fg_color=BG_WIDGET, hover_color=BG_PANEL_2,
+            border_color=BORDER, border_width=1,
+            text_color=FG_TEXT, font=ctk.CTkFont(size=16, weight="bold"),
+            command=self._rotate_cw,
+        ).pack(side="left", padx=2)
 
         # -- 2. calibration -------------------------------------------------
         self._section(sb, "2  ·  CALIBRATION")
@@ -471,6 +508,22 @@ class LaunchMonitorApp(ctk.CTk):
             return
         action()
 
+    def _rotate_cw(self):
+        """Rotate video 90 degrees clockwise."""
+        if self.cap is None:
+            return
+        self.rotation = (self.rotation + 90) % 360
+        self.rotation_lbl.configure(text=f"{self.rotation}°")
+        self._render()
+
+    def _rotate_ccw(self):
+        """Rotate video 90 degrees counter-clockwise."""
+        if self.cap is None:
+            return
+        self.rotation = (self.rotation - 90) % 360
+        self.rotation_lbl.configure(text=f"{self.rotation}°")
+        self._render()
+
     # ================================================================== #
     #  Video handling
     # ================================================================== #
@@ -520,6 +573,8 @@ class LaunchMonitorApp(ctk.CTk):
         self._cached_frame = first
         self._cap_next = 1
         self.current_idx = 0
+        self.rotation = 0
+        self.rotation_lbl.configure(text="0°")
 
         # reset shot data (keep calibration only if same session scale wanted;
         # a new video means a new camera position, so reset it too)
@@ -644,8 +699,32 @@ class LaunchMonitorApp(ctk.CTk):
         scale, ox, oy, dw, dh = self._disp
         if not (ox <= cx <= ox + dw and oy <= cy <= oy + dh):
             return None
-        vx = (cx - ox) / scale
-        vy = (cy - oy) / scale
+
+        # from canvas to rotated frame space
+        rx = (cx - ox) / scale
+        ry = (cy - oy) / scale
+
+        # dimensions of rotated frame
+        if self.rotation in (90, 270):
+            rot_w, rot_h = self.frame_h, self.frame_w
+        else:
+            rot_w, rot_h = self.frame_w, self.frame_h
+
+        rx = min(max(rx, 0), rot_w - 1)
+        ry = min(max(ry, 0), rot_h - 1)
+
+        # from rotated frame space back to original frame space
+        if self.rotation == 0:
+            vx, vy = rx, ry
+        elif self.rotation == 90:
+            vx, vy = ry, self.frame_w - rx
+        elif self.rotation == 180:
+            vx, vy = self.frame_w - rx, self.frame_h - ry
+        elif self.rotation == 270:
+            vx, vy = self.frame_h - ry, rx
+        else:
+            vx, vy = rx, ry
+
         vx = min(max(vx, 0), self.frame_w - 1)
         vy = min(max(vy, 0), self.frame_h - 1)
         return (float(vx), float(vy))
@@ -1103,6 +1182,7 @@ class LaunchMonitorApp(ctk.CTk):
         if raw is None:
             return None
         frame = raw.copy()
+        frame = _rotate_frame(frame, self.rotation)
 
         self._draw_calibration(frame)
         if self.trajectory is None:
