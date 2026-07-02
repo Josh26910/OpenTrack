@@ -35,6 +35,7 @@ Dependencies
 
 import math
 import os
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -153,6 +154,8 @@ class LaunchMonitorApp(ctk.CTk):
 
         self.playing = False
         self._play_job = None
+        self._play_clock_start = 0.0   # wall-clock time playback started
+        self._play_idx_start = 0       # frame index playback started from
 
         # ---------------- shot marking ----------------
         self.mode = MODE_IDLE
@@ -182,6 +185,7 @@ class LaunchMonitorApp(ctk.CTk):
         # screen even if window dimensions and event coordinates disagree.
         self._disp_rot_dims = None
         self._photo = None
+        self._canvas_image_id = None
 
         # ---------------- UI ----------------
         self._slider_guard = False
@@ -761,6 +765,8 @@ class LaunchMonitorApp(ctk.CTk):
                 self.seek(0)
             self.playing = True
             self.play_btn.configure(text="❚❚")
+            self._play_clock_start = time.perf_counter()
+            self._play_idx_start = self.current_idx
             self._play_tick()
 
     def _play_tick(self):
@@ -769,7 +775,24 @@ class LaunchMonitorApp(ctk.CTk):
         if self.current_idx >= self.frame_count - 1:
             self._stop_play()
             return
-        self.seek(self.current_idx + 1)
+
+        # Real-time pacing: advance to whichever frame *should* be showing
+        # right now given wall-clock time elapsed since play started, rather
+        # than blindly stepping by exactly one frame per tick. If rendering
+        # ever falls behind (large frames, a slow machine, heavy overlays),
+        # this catches up by skipping frames so the overall playback speed
+        # stays correct instead of the whole video quietly running in
+        # unintended slow motion.
+        elapsed = time.perf_counter() - self._play_clock_start
+        target_idx = self._play_idx_start + int(round(elapsed * self.playback_fps))
+        target_idx = max(self.current_idx + 1, target_idx)
+        target_idx = min(target_idx, self.frame_count - 1)
+        self.seek(target_idx)
+
+        if self.current_idx >= self.frame_count - 1:
+            self._stop_play()
+            return
+
         delay = max(1, int(round(1000.0 / self.playback_fps)))
         self._play_job = self.after(delay, self._play_tick)
 
@@ -1198,6 +1221,21 @@ class LaunchMonitorApp(ctk.CTk):
             x = ax * t * t + bx * t + cx
             y = ay * t * t + by * t + cy
             traj[f] = (x, y)
+
+        # Pin the ring to the exact pixel the user clicked on every frame
+        # they actually marked. The weighted fit above only forces the
+        # curve through impact/apex/landing tightly (5x/8x/8x); the
+        # intermediate launch-click frames only get unit weight, so the
+        # smoothed parabola can visibly drift a few pixels off an
+        # in-between click. That's fine for the physics (a single smooth
+        # parabola is the whole point), but a visible gap between the ring
+        # and the ball on a frame the user explicitly clicked reads as a
+        # tracking bug, so the *display* always snaps back to the exact
+        # click on marked frames while interpolated frames keep the smooth
+        # physics curve.
+        for f, x, y in pts:
+            traj[f] = (x, y)
+
         self.trajectory = traj
 
     def _compute_stats(self):
@@ -1332,6 +1370,7 @@ class LaunchMonitorApp(ctk.CTk):
 
         if self.cap is None:
             self.canvas.delete("all")
+            self._canvas_image_id = None
             self.canvas.create_text(
                 cw / 2, ch / 2 - 14, text="OPENTRACK STUDIO",
                 fill=TM_ORANGE, font=("Arial", 22, "bold"),
@@ -1358,9 +1397,18 @@ class LaunchMonitorApp(ctk.CTk):
 
         image = Image.fromarray(disp)
         self._photo = ImageTk.PhotoImage(image)
-        self.canvas.delete("all")
-        self.canvas.create_image(cw // 2, ch // 2, image=self._photo,
-                                 tags="frame_img")
+
+        # Reuse the same canvas image item across frames instead of tearing
+        # down and rebuilding the whole canvas item tree every tick — with
+        # playback ticking dozens of times per second, that rebuild cost was
+        # a real contributor to frames falling behind their target pace.
+        if self._canvas_image_id is None:
+            self.canvas.delete("all")
+            self._canvas_image_id = self.canvas.create_image(
+                cw // 2, ch // 2, image=self._photo, tags="frame_img")
+        else:
+            self.canvas.itemconfig(self._canvas_image_id, image=self._photo)
+            self.canvas.coords(self._canvas_image_id, cw // 2, ch // 2)
 
         # dimensions of the (possibly rotated) frame that was just resized
         # and placed on the canvas — used by _canvas_to_video to convert
@@ -1419,36 +1467,38 @@ class LaunchMonitorApp(ctk.CTk):
                 cv2.circle(frame, p, 4, ORANGE_BGR, 1, cv2.LINE_AA)
 
     def _draw_click_markers(self, frame, idx):
-        """Show manual marks while the shot is being annotated."""
+        """Show manual marks while the shot is being annotated.
+
+        Only the marker for the CURRENT frame is drawn at "ball size" (a
+        prominent ring, matching the tracking ring's look, since on its own
+        frame a click is by definition exactly on the ball). Every other
+        click is a small, dim reference pip + number — enough to see your
+        click history while scrubbing, but never big or bright enough to
+        read as a second "ball" floating disconnected from the real one.
+        """
         r_dot = max(6, self.frame_w // 140)
         r_halo = r_dot + 3
+        r_pip = max(2, r_dot // 3)
 
-        # draw all launch clicks as persistent dots with numbers
+        def draw_mark(p, label, on_frame):
+            if on_frame:
+                cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, ORANGE_BGR, -1, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, WHITE_BGR, 1, cv2.LINE_AA)
+                cv2.putText(frame, label, (p[0] + r_dot + 6, p[1] + 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, ORANGE_BGR, 2,
+                            cv2.LINE_AA)
+            else:
+                cv2.circle(frame, p, r_pip, (90, 110, 130), -1, cv2.LINE_AA)
+                cv2.putText(frame, label, (p[0] + r_pip + 5, p[1] + 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (110, 130, 150), 1,
+                            cv2.LINE_AA)
+
         for i, (f, x, y) in enumerate(self.launch_clicks):
             rx, ry = self._video_to_rotated(x, y)
             p = (int(round(rx)), int(round(ry)))
-            on_frame = (f == idx)
-            if on_frame:
-                # highlight current frame: orange dot with halo
-                cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
-                cv2.circle(frame, p, r_dot, ORANGE_BGR, -1, cv2.LINE_AA)
-                # white outline for contrast
-                cv2.circle(frame, p, r_dot, WHITE_BGR, 1, cv2.LINE_AA)
-            else:
-                # past clicks: blue dot with subtle outline
-                cv2.circle(frame, p, r_dot, (0, 80, 180), -1, cv2.LINE_AA)
-                cv2.circle(frame, p, r_dot, (60, 140, 220), 1, cv2.LINE_AA)
+            draw_mark(p, str(i + 1), f == idx)
 
-            # number label to the right of the dot
-            num_text = str(i + 1)
-            offset_x = p[0] + r_dot + 6
-            offset_y = p[1] + 5
-            cv2.putText(frame, num_text, (offset_x, offset_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                        ORANGE_BGR if on_frame else (100, 150, 220),
-                        2 if on_frame else 1, cv2.LINE_AA)
-
-        # draw apex and landing markers
         for click, tag in ((self.apex_click, "APEX"),
                            (self.landing_click, "LAND")):
             if click is None:
@@ -1456,20 +1506,7 @@ class LaunchMonitorApp(ctk.CTk):
             f, x, y = click
             rx, ry = self._video_to_rotated(x, y)
             p = (int(round(rx)), int(round(ry)))
-            on_frame = (f == idx)
-            if on_frame:
-                cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
-                cv2.circle(frame, p, r_dot, ORANGE_BGR, -1, cv2.LINE_AA)
-                cv2.circle(frame, p, r_dot, WHITE_BGR, 1, cv2.LINE_AA)
-            else:
-                cv2.circle(frame, p, r_dot, (0, 80, 180), -1, cv2.LINE_AA)
-                cv2.circle(frame, p, r_dot, (60, 140, 220), 1, cv2.LINE_AA)
-
-            # tag label to the right
-            cv2.putText(frame, tag, (p[0] + r_dot + 6, p[1] + 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                        ORANGE_BGR if on_frame else (100, 150, 220),
-                        2 if on_frame else 1, cv2.LINE_AA)
+            draw_mark(p, tag, f == idx)
 
     def _draw_tracking_ring(self, frame, idx):
         """
