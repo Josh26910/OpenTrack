@@ -182,6 +182,7 @@ class LaunchMonitorApp(ctk.CTk):
         self._preview_slider = None
         self._preview_play_btn = None
         self._preview_slider_guard = False
+        self._preview_render_state = None   # in-progress chunked render, if any
 
         # ---------------- shot marking ----------------
         self.mode = MODE_IDLE
@@ -1722,6 +1723,17 @@ class LaunchMonitorApp(ctk.CTk):
     # built PhotoImage is showing — no OpenCV, no compositing, no per-frame
     # allocation — so it can actually keep pace with real frame rates.
 
+    # Hard caps on the preview's memory footprint. Pre-baking frames as full
+    # PhotoImages is what makes playback smooth, but it means every preview
+    # frame is fully decoded and resident in RAM at once for the whole
+    # session -- at the old caps (600 frames, 1000px) that's up to ~1.8GB of
+    # raw pixel data before Tk's own PhotoImage storage overhead on top,
+    # easily enough to make a laptop with 8-16GB of RAM start swapping,
+    # which looks and feels exactly like a freeze. At these caps the same
+    # worst case is under ~200MB.
+    PREVIEW_MAX_FRAMES = 300
+    PREVIEW_MAX_DIM = 640
+
     def open_preview_window(self):
         if self.cap is None:
             messagebox.showwarning("No video", "Load a video first.")
@@ -1746,9 +1758,8 @@ class LaunchMonitorApp(ctk.CTk):
         f0 = max(0, f0 - pad)
         f1 = min(self.frame_count - 1, f1 + pad)
 
-        MAX_PREVIEW_FRAMES = 600
-        if f1 - f0 + 1 > MAX_PREVIEW_FRAMES:
-            f1 = f0 + MAX_PREVIEW_FRAMES - 1
+        if f1 - f0 + 1 > self.PREVIEW_MAX_FRAMES:
+            f1 = f0 + self.PREVIEW_MAX_FRAMES - 1
 
         # target display size: fit within most of the screen, capped so a
         # huge source video doesn't blow up pre-render time/memory, always
@@ -1757,27 +1768,29 @@ class LaunchMonitorApp(ctk.CTk):
             src_w, src_h = self.frame_h, self.frame_w
         else:
             src_w, src_h = self.frame_w, self.frame_h
-        max_w = min(1000, int(self.winfo_screenwidth() * 0.85))
-        max_h = min(1000, int(self.winfo_screenheight() * 0.85))
+        max_w = min(self.PREVIEW_MAX_DIM, int(self.winfo_screenwidth() * 0.85))
+        max_h = min(self.PREVIEW_MAX_DIM, int(self.winfo_screenheight() * 0.85))
         scale = min(max_w / src_w, max_h / src_h, 1.0)
         target_w = max(1, int(src_w * scale))
         target_h = max(1, int(src_h * scale))
 
-        self._render_preview_frames(f0, f1, target_w, target_h)
-        if not self._preview_photos:
-            messagebox.showerror("Preview failed", "No frames could be rendered.")
-            return
+        self._start_preview_render(f0, f1, target_w, target_h)
 
-        self._build_preview_window(target_w, target_h)
-
-    def _render_preview_frames(self, f0, f1, target_w, target_h):
-        """Composite and bake every frame in [f0, f1] into a ready-to-blit
-        PhotoImage, showing progress since this can take a couple of
-        seconds for a few hundred frames."""
+    def _start_preview_render(self, f0, f1, target_w, target_h):
+        """Kick off a chunked, non-blocking render of every frame in
+        [f0, f1]. Composited in small batches via self.after() rather than
+        one long Python loop -- a single blocking loop over a few hundred
+        frames can easily run 5-15+ seconds on a modest laptop CPU, and for
+        that whole span Tk never returns to its event loop, so the OS marks
+        the window as "Not Responding": a real freeze, not just a slow
+        operation. Yielding back to after() every few frames keeps the app
+        responsive (and cancellable) throughout, even though the total
+        wall-clock time to finish is about the same.
+        """
         total = f1 - f0 + 1
         progress = ctk.CTkToplevel(self)
         progress.title("Rendering preview…")
-        progress.geometry("360x110")
+        progress.geometry("360x130")
         progress.configure(fg_color=BG_PANEL)
         progress.transient(self)
         progress.grab_set()
@@ -1795,30 +1808,67 @@ class LaunchMonitorApp(ctk.CTk):
             progress, text=f"0 / {total} frames",
             font=ctk.CTkFont(size=11), text_color=FG_MUTED,
         )
-        status_lbl.pack()
-        progress.update_idletasks()
+        status_lbl.pack(pady=(0, 8))
 
-        photos = []
-        frames = []
-        interp = cv2.INTER_AREA if target_w < self.frame_w else cv2.INTER_LINEAR
-        for i, f in enumerate(range(f0, f1 + 1)):
+        state = {
+            "f0": f0, "total": total, "i": 0,
+            "target_w": target_w, "target_h": target_h,
+            "photos": [], "frames": [], "cancelled": False,
+            "dialog": progress, "bar": bar, "status_lbl": status_lbl,
+            "interp": cv2.INTER_AREA if target_w < self.frame_w else cv2.INTER_LINEAR,
+        }
+
+        def cancel():
+            state["cancelled"] = True
+
+        ctk.CTkButton(
+            progress, text="Cancel", height=28, width=100,
+            fg_color=BG_WIDGET, hover_color="#3A2020",
+            border_color=BORDER, border_width=1, text_color=FG_TEXT,
+            font=ctk.CTkFont(size=12), command=cancel,
+        ).pack()
+        progress.protocol("WM_DELETE_WINDOW", cancel)
+
+        self._preview_render_state = state
+        self._preview_render_step()
+
+    def _preview_render_step(self):
+        st = self._preview_render_state
+        if st["cancelled"]:
+            st["dialog"].grab_release()
+            st["dialog"].destroy()
+            self._set_status("Preview cancelled.")
+            return
+
+        CHUNK = 4  # small enough that each step stays imperceptibly short
+        end = min(st["i"] + CHUNK, st["total"])
+        for i in range(st["i"], end):
+            f = st["f0"] + i
             composed = self._compose_frame(f)
             if composed is not None:
-                disp = cv2.resize(composed, (target_w, target_h),
-                                  interpolation=interp)
+                disp = cv2.resize(composed, (st["target_w"], st["target_h"]),
+                                  interpolation=st["interp"])
                 disp = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
-                photos.append(ImageTk.PhotoImage(Image.fromarray(disp)))
-                frames.append(f)
-            if i % 10 == 0 or i == total - 1:
-                bar.set((i + 1) / total)
-                status_lbl.configure(text=f"{i + 1} / {total} frames")
-                progress.update_idletasks()
+                st["photos"].append(ImageTk.PhotoImage(Image.fromarray(disp)))
+                st["frames"].append(f)
+        st["i"] = end
+        st["bar"].set(st["i"] / st["total"])
+        st["status_lbl"].configure(text=f"{st['i']} / {st['total']} frames")
 
-        progress.grab_release()
-        progress.destroy()
+        if st["i"] < st["total"]:
+            self._preview_job = self.after(1, self._preview_render_step)
+            return
 
-        self._preview_photos = photos
-        self._preview_frames = frames
+        st["dialog"].grab_release()
+        st["dialog"].destroy()
+        self._preview_job = None
+
+        self._preview_photos = st["photos"]
+        self._preview_frames = st["frames"]
+        if not self._preview_photos:
+            messagebox.showerror("Preview failed", "No frames could be rendered.")
+            return
+        self._build_preview_window(st["target_w"], st["target_h"])
 
     def _build_preview_window(self, target_w, target_h):
         win = ctk.CTkToplevel(self)
@@ -1953,6 +2003,17 @@ class LaunchMonitorApp(ctk.CTk):
             except Exception:
                 pass
             self._preview_job = None
+        # cancel and tear down an in-progress chunked render, if any
+        if self._preview_render_state is not None:
+            self._preview_render_state["cancelled"] = True
+            dialog = self._preview_render_state.get("dialog")
+            if dialog is not None:
+                try:
+                    dialog.grab_release()
+                    dialog.destroy()
+                except Exception:
+                    pass
+            self._preview_render_state = None
         if self._preview_win is not None:
             try:
                 self._preview_win.destroy()
