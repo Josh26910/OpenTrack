@@ -1265,26 +1265,45 @@ class LaunchMonitorApp(ctk.CTk):
         self.apex_frame = self.apex_click[0]
         self.landing_frame = self.landing_click[0]
 
-        traj = {}
-        for f in range(f0, self.landing_frame + 1):
+        def curve_pos(f):
             t = (f - f0) / fps
-            x = ax * t * t + bx * t + cx
-            y = ay * t * t + by * t + cy
-            traj[f] = (x, y)
+            return (ax * t * t + bx * t + cx, ay * t * t + by * t + cy)
 
-        # Pin the ring to the exact pixel the user clicked on every frame
-        # they actually marked. The weighted fit above only forces the
-        # curve through impact/apex/landing tightly (5x/8x/8x); the
-        # intermediate launch-click frames only get unit weight, so the
-        # smoothed parabola can visibly drift a few pixels off an
-        # in-between click. That's fine for the physics (a single smooth
-        # parabola is the whole point), but a visible gap between the ring
-        # and the ball on a frame the user explicitly clicked reads as a
-        # tracking bug, so the *display* always snaps back to the exact
-        # click on marked frames while interpolated frames keep the smooth
-        # physics curve.
-        for f, x, y in pts:
-            traj[f] = (x, y)
+        # Per-segment display rule, not one global smoothed curve everywhere:
+        # between two consecutive marks that are close together in time
+        # (< GAP_THRESHOLD frames apart), the user has effectively told us
+        # where the ball was for that whole stretch, so just connect their
+        # literal clicks directly -- there's no meaningful curvature to
+        # capture over a couple of frames anyway, and doing so would let a
+        # smoothed curve visibly override real data.
+        #
+        # Across a *wide* gap (>= GAP_THRESHOLD frames, e.g. the long
+        # unclicked stretch from the last launch click up through the apex,
+        # or apex down to landing), there's no direct data for those
+        # in-between frames at all -- connecting them with a straight line
+        # would be flatly wrong for a ball in flight, so that stretch uses
+        # the physics-fit parabola instead. The fit still uses every clicked
+        # point (weighted heavily at impact/apex/landing) to shape itself,
+        # so it's informed by your data even where it has to interpolate.
+        #
+        # Either way, every frame you actually clicked is set to your exact
+        # raw pixel -- never overridden by the curve.
+        GAP_THRESHOLD = 5
+
+        traj = {}
+        for (fa, xa, ya), (fb, xb, yb) in zip(pts, pts[1:]):
+            traj[fa] = (xa, ya)
+            gap = fb - fa
+            if gap <= 1:
+                continue
+            if gap >= GAP_THRESHOLD:
+                for f in range(fa + 1, fb):
+                    traj[f] = curve_pos(f)
+            else:
+                for f in range(fa + 1, fb):
+                    frac = (f - fa) / gap
+                    traj[f] = (xa + (xb - xa) * frac, ya + (yb - ya) * frac)
+        traj[pts[-1][0]] = (pts[-1][1], pts[-1][2])
 
         self.trajectory = traj
 
