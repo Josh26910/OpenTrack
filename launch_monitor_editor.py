@@ -175,8 +175,11 @@ class LaunchMonitorApp(ctk.CTk):
         self._tile_rects = {}          # {key: (x1,y1,x2,y2)} video coords
 
         # ---------------- display transform ----------------
-        # (scale, offset_x, offset_y, disp_w, disp_h) canvas <-> video mapping
-        self._disp = None
+        # (rotated_frame_w, rotated_frame_h) for the image currently placed
+        # on the canvas — the ground truth used by _canvas_to_video, paired
+        # with a live canvas.bbox() query so clicks always match what's on
+        # screen even if window dimensions and event coordinates disagree.
+        self._disp_rot_dims = None
         self._photo = None
 
         # ---------------- UI ----------------
@@ -692,42 +695,82 @@ class LaunchMonitorApp(ctk.CTk):
     #  Coordinate mapping (canvas <-> video)
     # ================================================================== #
 
-    def _canvas_to_video(self, cx, cy):
-        """Map a canvas click to video-pixel coordinates (or None)."""
-        if self._disp is None or self.cap is None:
+    def _canvas_to_rotated(self, cx, cy):
+        """Map a canvas click to pixel coords in the ROTATED (displayed)
+        frame's own space (or None).
+
+        Uses the canvas's own live bounding box for the displayed image
+        (canvas.bbox) rather than separately-tracked window dimensions, so
+        the click coordinate system and the render coordinate system can
+        never drift apart (this is what HiDPI / Tk display-scaling desync
+        would otherwise cause: winfo_width()/winfo_height() disagreeing
+        with the pixel space that mouse events are reported in).
+        """
+        if self.cap is None or self._disp_rot_dims is None:
             return None
-        scale, ox, oy, dw, dh = self._disp
-        if not (ox <= cx <= ox + dw and oy <= cy <= oy + dh):
+        bbox = self.canvas.bbox("frame_img")
+        if bbox is None:
+            return None
+        x1, y1, x2, y2 = bbox
+        dw = x2 - x1
+        dh = y2 - y1
+        if dw <= 0 or dh <= 0:
+            return None
+        if not (x1 <= cx <= x2 and y1 <= cy <= y2):
             return None
 
-        # from canvas to rotated frame space
-        rx = (cx - ox) / scale
-        ry = (cy - oy) / scale
+        rot_w, rot_h = self._disp_rot_dims
+        scale_x = dw / rot_w
+        scale_y = dh / rot_h
 
-        # dimensions of rotated frame
-        if self.rotation in (90, 270):
-            rot_w, rot_h = self.frame_h, self.frame_w
-        else:
-            rot_w, rot_h = self.frame_w, self.frame_h
+        rx = (cx - x1) / scale_x
+        ry = (cy - y1) / scale_y
 
         rx = min(max(rx, 0), rot_w - 1)
         ry = min(max(ry, 0), rot_h - 1)
+        return (rx, ry)
 
-        # from rotated frame space back to original frame space
+    def _rotated_to_video(self, rx, ry):
+        """Inverse-rotate a point from displayed/rotated space back into
+        the original (unrotated) video frame's pixel space."""
         if self.rotation == 0:
             vx, vy = rx, ry
         elif self.rotation == 90:
-            vx, vy = ry, self.frame_w - rx
+            vx, vy = ry, self.frame_h - 1 - rx
         elif self.rotation == 180:
-            vx, vy = self.frame_w - rx, self.frame_h - ry
+            vx, vy = self.frame_w - 1 - rx, self.frame_h - 1 - ry
         elif self.rotation == 270:
-            vx, vy = self.frame_h - ry, rx
+            vx, vy = self.frame_w - 1 - ry, rx
         else:
             vx, vy = rx, ry
 
         vx = min(max(vx, 0), self.frame_w - 1)
         vy = min(max(vy, 0), self.frame_h - 1)
         return (float(vx), float(vy))
+
+    def _video_to_rotated(self, vx, vy):
+        """Forward-rotate a point from the original video frame's pixel
+        space into the currently displayed/rotated frame's pixel space.
+        Inverse of `_rotated_to_video`; used to place overlays (click dots,
+        the tracking ring, calibration lines) correctly on a rotated frame.
+        """
+        if self.rotation == 0:
+            return (vx, vy)
+        if self.rotation == 90:
+            return (self.frame_h - 1 - vy, vx)
+        if self.rotation == 180:
+            return (self.frame_w - 1 - vx, self.frame_h - 1 - vy)
+        if self.rotation == 270:
+            return (vy, self.frame_w - 1 - vx)
+        return (vx, vy)
+
+    def _canvas_to_video(self, cx, cy):
+        """Map a canvas click to video-pixel coordinates in the ORIGINAL
+        (unrotated) frame space (or None)."""
+        r = self._canvas_to_rotated(cx, cy)
+        if r is None:
+            return None
+        return self._rotated_to_video(r[0], r[1])
 
     # ================================================================== #
     #  Mouse interaction
@@ -840,7 +883,11 @@ class LaunchMonitorApp(ctk.CTk):
             return
         if self.apex_frame is None or self.current_idx < self.apex_frame:
             return
-        pt = self._canvas_to_video(event.x, event.y)
+        # tile rects are stored in rotated/displayed frame space (they're
+        # laid out directly from the rotated frame's width/height), so hit
+        # testing must use the same rotated-space point, not the
+        # original-video-space point that _canvas_to_video returns.
+        pt = self._canvas_to_rotated(event.x, event.y)
         if pt is None:
             return
         for key, (x1, y1, x2, y2) in self._tile_rects.items():
@@ -1152,7 +1199,7 @@ class LaunchMonitorApp(ctk.CTk):
                 text="Upload a .mp4 or .mov video to begin",
                 fill=FG_MUTED, font=("Arial", 12),
             )
-            self._disp = None
+            self._disp_rot_dims = None
             return
 
         frame = self._compose_frame(self.current_idx)
@@ -1170,11 +1217,13 @@ class LaunchMonitorApp(ctk.CTk):
         image = Image.fromarray(disp)
         self._photo = ImageTk.PhotoImage(image)
         self.canvas.delete("all")
-        self.canvas.create_image(cw // 2, ch // 2, image=self._photo)
+        self.canvas.create_image(cw // 2, ch // 2, image=self._photo,
+                                 tags="frame_img")
 
-        ox = (cw - dw) / 2.0
-        oy = (ch - dh) / 2.0
-        self._disp = (scale, ox, oy, dw, dh)
+        # dimensions of the (possibly rotated) frame that was just resized
+        # and placed on the canvas — used by _canvas_to_video to convert
+        # click positions back into video-pixel space.
+        self._disp_rot_dims = (fw, fh)
 
     def _compose_frame(self, idx):
         """Raw frame + all overlays (markers, calibration, ring, tiles)."""
@@ -1199,21 +1248,27 @@ class LaunchMonitorApp(ctk.CTk):
         # live drag preview
         if self.mode == MODE_CALIBRATE and self._cal_start is not None \
                 and self._cal_current is not None:
-            p1 = tuple(int(round(v)) for v in self._cal_start)
-            p2 = tuple(int(round(v)) for v in self._cal_current)
+            p1r = self._video_to_rotated(*self._cal_start)
+            p2r = self._video_to_rotated(*self._cal_current)
+            p1 = tuple(int(round(v)) for v in p1r)
+            p2 = tuple(int(round(v)) for v in p2r)
             cv2.line(frame, p1, p2, BLACK_BGR, 5, cv2.LINE_AA)
             cv2.line(frame, p1, p2, ORANGE_BGR, 2, cv2.LINE_AA)
             for p in (p1, p2):
                 cv2.circle(frame, p, 6, ORANGE_BGR, -1, cv2.LINE_AA)
-            length_px = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+            # real-world (unrotated) pixel distance, not the on-screen one
+            length_px = math.hypot(self._cal_current[0] - self._cal_start[0],
+                                   self._cal_current[1] - self._cal_start[1])
             mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2 - 12)
             cv2.putText(frame, f"{length_px:.0f}px", mid,
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, WHITE_BGR, 2,
                         cv2.LINE_AA)
         # persisted calibration line (only while in calibrate mode, subtle)
         elif self.mode == MODE_CALIBRATE and self._cal_line is not None:
-            p1 = tuple(int(round(v)) for v in self._cal_line[0])
-            p2 = tuple(int(round(v)) for v in self._cal_line[1])
+            p1r = self._video_to_rotated(*self._cal_line[0])
+            p2r = self._video_to_rotated(*self._cal_line[1])
+            p1 = tuple(int(round(v)) for v in p1r)
+            p2 = tuple(int(round(v)) for v in p2r)
             cv2.line(frame, p1, p2, ORANGE_BGR, 1, cv2.LINE_AA)
             for p in (p1, p2):
                 cv2.circle(frame, p, 4, ORANGE_BGR, 1, cv2.LINE_AA)
@@ -1225,7 +1280,8 @@ class LaunchMonitorApp(ctk.CTk):
 
         # draw all launch clicks as persistent dots with numbers
         for i, (f, x, y) in enumerate(self.launch_clicks):
-            p = (int(round(x)), int(round(y)))
+            rx, ry = self._video_to_rotated(x, y)
+            p = (int(round(rx)), int(round(ry)))
             on_frame = (f == idx)
             if on_frame:
                 # highlight current frame: orange dot with halo
@@ -1253,7 +1309,8 @@ class LaunchMonitorApp(ctk.CTk):
             if click is None:
                 continue
             f, x, y = click
-            p = (int(round(x)), int(round(y)))
+            rx, ry = self._video_to_rotated(x, y)
+            p = (int(round(rx)), int(round(ry)))
             on_frame = (f == idx)
             if on_frame:
                 cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
@@ -1281,7 +1338,8 @@ class LaunchMonitorApp(ctk.CTk):
         """
         if self.trajectory is None or idx not in self.trajectory:
             return
-        x, y = self.trajectory[idx]
+        vx, vy = self.trajectory[idx]
+        x, y = self._video_to_rotated(vx, vy)
         h, w = frame.shape[:2]
         r = max(9, int(round(w / 90.0)))
 
