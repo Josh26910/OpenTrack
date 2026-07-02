@@ -1280,29 +1280,46 @@ class LaunchMonitorApp(ctk.CTk):
         # would be flatly wrong for a ball in flight, so that stretch uses
         # the physics-fit parabola's *shape* instead.
         #
-        # The global fit's raw curve isn't used to place the ring at all,
-        # though -- not even offset-anchored to the segment endpoints.
-        # Pinning the endpoints fixes the *position* jump but not the
-        # *velocity* at the seam: the curve could still take over heading in
-        # a different direction/speed than the clicks were moving, a visible
-        # kink (or brief backward lurch) exactly one frame after perfect
-        # data. Instead each wide-gap segment is built as its own
-        # constant-acceleration (projectile) arc whose launch velocity IS
-        # the clicked motion: v0 comes from a short linear regression over
-        # the trailing clicks (regression, not just the last two clicks, so
-        # one shaky click can't fling the arc), and the segment's
-        # acceleration is solved so the arc still lands exactly on the next
-        # mark. The tracer therefore leaves the last clicked dot at the same
-        # speed and direction it arrived with, curves like a ball in flight,
-        # and arrives dead on the apex/landing click -- C1-continuous, no
-        # seam. Segments after a curved one chain the previous arc's exit
-        # velocity, so apex -> landing stays smooth through the apex too.
+        # Wide-gap segments are NOT the global fit's raw curve, and they are
+        # not free-solved constant-acceleration arcs either: forcing the
+        # clicked velocity *magnitude* onto an arc that must land on the
+        # next mark over-constrains it -- when the clicked px/frame speed
+        # exceeds what the gap can absorb, the solved "acceleration" flings
+        # the ball far past the apex before dragging it back (the ball flew
+        # off frame and never descended). Instead each wide gap is built to
+        # be *monotone toward its target* on both axes:
         #
-        # Either way, every frame you actually clicked is set to your exact
-        # raw pixel -- never overridden by the curve.
+        #   * last click -> APEX: vertical motion is a monotone cubic
+        #     Hermite that starts at the clicked vertical speed (clamped
+        #     into the Fritsch-Carlson monotone region so it can never
+        #     overshoot the apex) and arrives with ZERO vertical velocity --
+        #     the apex mark is the true peak of the flight;
+        #   * APEX -> LANDING: a from-rest gravity parabola,
+        #     y = y_apex + (y_land - y_apex) * (tau/T)^2, which leaves the
+        #     apex flat (C1 through the peak) and accelerates downward to
+        #     hit the landing mark exactly;
+        #   * horizontal motion everywhere is a constant-deceleration glide
+        #     whose launch speed is the clicked/chained speed clamped into
+        #     [0, 2*Dx/T] -- as close to the clicked speed as physics
+        #     allows while still guaranteeing forward-only motion that ends
+        #     exactly on the mark. The descent chains the ascent's exit
+        #     speed, so speed stays continuous through the apex.
+        #
+        # Net effect: the flight is confined to the box spanned by the
+        # marks (it cannot fly off screen), rises to the apex, and descends
+        # onto the landing point. Every frame you actually clicked is still
+        # set to your exact raw pixel -- never overridden by the curve.
         GAP_THRESHOLD = 5
         V0_TRAIL_POINTS = 4     # regression window for the seam velocity
         V0_TRAIL_SPAN = 12      # ignore trailing clicks older than this many frames
+
+        def monotone_v0(v, D, T):
+            # Launch speed for a constant-acceleration axis that must travel
+            # D over T frames without ever moving past the target: it has to
+            # point toward D and use at most full deceleration-to-rest
+            # (2D/T). Anything outside that window guarantees overshoot.
+            lo, hi = sorted((0.0, 2.0 * D / T))
+            return min(max(v, lo), hi)
 
         traj = {}
         prev_end_vel = None     # px/frame velocity at the end of the previous segment
@@ -1320,36 +1337,60 @@ class LaunchMonitorApp(ctk.CTk):
                     prev_was_curve = False
                 continue
 
-            # wide gap: pick the seam velocity v0 (px/frame)
+            # seam velocity: chain the previous arc's exit velocity, else a
+            # short linear regression over the trailing clicks (regression,
+            # not just the last two clicks, so one shaky click can't fling
+            # the arc), else fall back to the segment's average velocity
+            T = float(gap)
+            Dx, Dy = xb - xa, yb - ya
             if prev_was_curve and prev_end_vel is not None:
-                # chain the previous arc's analytic exit velocity
-                v0 = prev_end_vel
+                v_in = prev_end_vel
             else:
                 trail = [(f, x, y) for (f, x, y) in pts[:i + 1]
                          if fa - f <= V0_TRAIL_SPAN][-V0_TRAIL_POINTS:]
                 if len(trail) >= 2:
                     tf = np.array([p[0] for p in trail], dtype=float)
-                    v0 = (np.polyfit(tf, [p[1] for p in trail], 1)[0],
-                          np.polyfit(tf, [p[2] for p in trail], 1)[0])
+                    v_in = (np.polyfit(tf, [p[1] for p in trail], 1)[0],
+                            np.polyfit(tf, [p[2] for p in trail], 1)[0])
                 elif prev_end_vel is not None:
-                    v0 = prev_end_vel
+                    v_in = prev_end_vel
                 else:
-                    # no motion history at all (wide gap right at the start):
-                    # keep the global fit's acceleration and solve v0 so the
-                    # arc still hits both endpoints
-                    fx = 2.0 * ax / (fps * fps)
-                    fy = 2.0 * ay / (fps * fps)
-                    v0 = ((xb - xa - 0.5 * fx * gap * gap) / gap,
-                          (yb - ya - 0.5 * fy * gap * gap) / gap)
+                    v_in = (Dx / T, Dy / T)
 
-            # constant acceleration that carries v0 exactly onto the next mark
-            sax = 2.0 * (xb - xa - v0[0] * gap) / (gap * gap)
-            say = 2.0 * (yb - ya - v0[1] * gap) / (gap * gap)
+            # horizontal: clamped constant-deceleration glide onto the mark
+            v0x = monotone_v0(v_in[0], Dx, T)
+            sax = 2.0 * (Dx - v0x * T) / (T * T)
+
+            ends_at_apex = (i + 1 == n_launch)
+            starts_at_apex = (i == n_launch)
+            if starts_at_apex:
+                # descent: from rest at the apex, fall onto the landing mark
+                vy_end = 2.0 * Dy / T
+            elif ends_at_apex:
+                # ascent: monotone cubic Hermite, zero slope at the apex
+                lo, hi = sorted((0.0, 3.0 * Dy / T))
+                m0y = min(max(v_in[1], lo), hi)
+                vy_end = 0.0
+            else:
+                # wide gap between launch clicks: same clamped glide as x
+                v0y = monotone_v0(v_in[1], Dy, T)
+                say = 2.0 * (Dy - v0y * T) / (T * T)
+                vy_end = v0y + say * T
+
             for f in range(fa + 1, fb):
                 tau = f - fa
-                traj[f] = (xa + v0[0] * tau + 0.5 * sax * tau * tau,
-                           ya + v0[1] * tau + 0.5 * say * tau * tau)
-            prev_end_vel = (v0[0] + sax * gap, v0[1] + say * gap)
+                x = xa + v0x * tau + 0.5 * sax * tau * tau
+                if starts_at_apex:
+                    y = ya + Dy * (tau / T) ** 2
+                elif ends_at_apex:
+                    s = tau / T
+                    h00 = (2.0 * s - 3.0) * s * s + 1.0
+                    h10 = ((s - 2.0) * s + 1.0) * s
+                    y = h00 * ya + (1.0 - h00) * yb + h10 * T * m0y
+                else:
+                    y = ya + v0y * tau + 0.5 * say * tau * tau
+                traj[f] = (x, y)
+            prev_end_vel = (v0x + sax * T, vy_end)
             prev_was_curve = True
         traj[pts[-1][0]] = (pts[-1][1], pts[-1][2])
 
@@ -1522,7 +1563,8 @@ class LaunchMonitorApp(ctk.CTk):
             self._disp_rot_dims = None
             return
 
-        frame = self._compose_frame(self.current_idx)
+        frame = self._compose_frame(self.current_idx,
+                                    show_marks=not self.playing)
         if frame is None:
             return
 
@@ -1554,7 +1596,7 @@ class LaunchMonitorApp(ctk.CTk):
         # click positions back into video-pixel space.
         self._disp_rot_dims = (fw, fh)
 
-    def _compose_frame(self, idx):
+    def _compose_frame(self, idx, show_marks=True):
         """Raw frame + all overlays (markers, calibration, ring, tiles)."""
         raw = self._get_frame(idx)
         if raw is None:
@@ -1563,11 +1605,12 @@ class LaunchMonitorApp(ctk.CTk):
         frame = _rotate_frame(frame, self.rotation)
 
         self._draw_calibration(frame)
-        # numbered reference dots for every click are always shown; the
-        # tracking ring is layered on top the moment enough clicks exist to
-        # interpolate a path (live preview), and gets replaced by the full
-        # physics fit once Track Shot is pressed.
-        self._draw_click_markers(frame, idx)
+        # The numbered reference dots are annotation-time UI only. During
+        # playback on the main canvas and in the baked Preview window they
+        # are suppressed (show_marks=False) so the tracking ring flies
+        # clean instead of flashing over the manually clicked dots.
+        if show_marks:
+            self._draw_click_markers(frame, idx)
         if self.trajectory is not None:
             if self.show_ring_var.get():
                 self._draw_tracking_ring(frame, idx)
@@ -1911,7 +1954,7 @@ class LaunchMonitorApp(ctk.CTk):
         end = min(st["i"] + CHUNK, st["total"])
         for i in range(st["i"], end):
             f = st["f0"] + i
-            composed = self._compose_frame(f)
+            composed = self._compose_frame(f, show_marks=False)
             if composed is not None:
                 disp = cv2.resize(composed, (st["target_w"], st["target_h"]),
                                   interpolation=st["interp"])
