@@ -169,6 +169,20 @@ class LaunchMonitorApp(ctk.CTk):
         self._play_clock_start = 0.0   # wall-clock time playback started
         self._play_idx_start = 0       # frame index playback started from
 
+        # ---------------- preview window (pre-rendered, no live drawing) ----
+        self._preview_win = None
+        self._preview_canvas = None
+        self._preview_photos = []      # pre-baked PhotoImage per frame
+        self._preview_frames = []      # raw video-frame index per entry above
+        self._preview_idx = 0          # index into _preview_photos
+        self._preview_playing = False
+        self._preview_job = None
+        self._preview_clock_start = 0.0
+        self._preview_idx_start = 0
+        self._preview_slider = None
+        self._preview_play_btn = None
+        self._preview_slider_guard = False
+
         # ---------------- shot marking ----------------
         self.mode = MODE_IDLE
         self.launch_clicks = []        # [(frame_idx, x, y), ...]  video coords
@@ -425,6 +439,13 @@ class LaunchMonitorApp(ctk.CTk):
             border_color=BORDER, border_width=1, text_color=FG_TEXT,
             font=ctk.CTkFont(size=12),
             command=self.clear_marks,
+        ).pack(fill="x", padx=16, pady=(0, 4))
+        ctk.CTkButton(
+            sb, text="▶  PREVIEW (SMOOTH PLAYBACK)", height=34,
+            fg_color=BG_WIDGET, hover_color=BG_PANEL_2,
+            border_color=TM_ORANGE, border_width=1, text_color=FG_TEXT,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.open_preview_window,
         ).pack(fill="x", padx=16, pady=(0, 6))
 
         # -- 5. data layout ---------------------------------------------------
@@ -1686,11 +1707,269 @@ class LaunchMonitorApp(ctk.CTk):
             self._tile_rects[key] = (x1, y1, x2, y2)
 
     # ================================================================== #
+    #  Preview window — pre-rendered, no per-frame overlay drawing
+    # ================================================================== #
+    #
+    # The main canvas redraws every overlay (markers, ring, tiles) from
+    # scratch on every tick via OpenCV, then hands a brand new PhotoImage
+    # to Tk. Tk's Canvas/PhotoImage path was never built for real-time
+    # video — even after trimming the per-frame CV cost, the Tk-side image
+    # upload alone caps out well under real playback rates on typical
+    # hardware. Rather than keep chasing that ceiling, Preview sidesteps it:
+    # every frame in the shot's range is composited and converted to a
+    # PhotoImage *once*, up front, into a plain Python list. The playback
+    # loop in the preview window then does nothing but swap which already-
+    # built PhotoImage is showing — no OpenCV, no compositing, no per-frame
+    # allocation — so it can actually keep pace with real frame rates.
+
+    def open_preview_window(self):
+        if self.cap is None:
+            messagebox.showwarning("No video", "Load a video first.")
+            return
+        if self.trajectory is None:
+            messagebox.showwarning(
+                "Nothing to preview",
+                "Mark at least two points (or press Track Shot) before "
+                "opening the preview.",
+            )
+            return
+
+        self._close_preview_window()
+
+        # cover the tracked range plus a little breathing room on each end,
+        # capped so pre-render time/memory stay bounded regardless of how
+        # long the source video is.
+        tracked_frames = list(self.trajectory.keys())
+        f0 = min(tracked_frames)
+        f1 = max(tracked_frames)
+        pad = max(5, int(self.fps * 0.3))
+        f0 = max(0, f0 - pad)
+        f1 = min(self.frame_count - 1, f1 + pad)
+
+        MAX_PREVIEW_FRAMES = 600
+        if f1 - f0 + 1 > MAX_PREVIEW_FRAMES:
+            f1 = f0 + MAX_PREVIEW_FRAMES - 1
+
+        # target display size: fit within most of the screen, capped so a
+        # huge source video doesn't blow up pre-render time/memory, always
+        # preserving the (rotated) frame's aspect ratio.
+        if self.rotation in (90, 270):
+            src_w, src_h = self.frame_h, self.frame_w
+        else:
+            src_w, src_h = self.frame_w, self.frame_h
+        max_w = min(1000, int(self.winfo_screenwidth() * 0.85))
+        max_h = min(1000, int(self.winfo_screenheight() * 0.85))
+        scale = min(max_w / src_w, max_h / src_h, 1.0)
+        target_w = max(1, int(src_w * scale))
+        target_h = max(1, int(src_h * scale))
+
+        self._render_preview_frames(f0, f1, target_w, target_h)
+        if not self._preview_photos:
+            messagebox.showerror("Preview failed", "No frames could be rendered.")
+            return
+
+        self._build_preview_window(target_w, target_h)
+
+    def _render_preview_frames(self, f0, f1, target_w, target_h):
+        """Composite and bake every frame in [f0, f1] into a ready-to-blit
+        PhotoImage, showing progress since this can take a couple of
+        seconds for a few hundred frames."""
+        total = f1 - f0 + 1
+        progress = ctk.CTkToplevel(self)
+        progress.title("Rendering preview…")
+        progress.geometry("360x110")
+        progress.configure(fg_color=BG_PANEL)
+        progress.transient(self)
+        progress.grab_set()
+        progress.resizable(False, False)
+        ctk.CTkLabel(
+            progress, text="Baking a smooth, glitch-free preview…",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color=FG_TEXT,
+        ).pack(pady=(18, 6))
+        bar = ctk.CTkProgressBar(
+            progress, progress_color=TM_ORANGE, fg_color=BG_WIDGET, width=300,
+        )
+        bar.set(0)
+        bar.pack(pady=(0, 8))
+        status_lbl = ctk.CTkLabel(
+            progress, text=f"0 / {total} frames",
+            font=ctk.CTkFont(size=11), text_color=FG_MUTED,
+        )
+        status_lbl.pack()
+        progress.update_idletasks()
+
+        photos = []
+        frames = []
+        interp = cv2.INTER_AREA if target_w < self.frame_w else cv2.INTER_LINEAR
+        for i, f in enumerate(range(f0, f1 + 1)):
+            composed = self._compose_frame(f)
+            if composed is not None:
+                disp = cv2.resize(composed, (target_w, target_h),
+                                  interpolation=interp)
+                disp = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
+                photos.append(ImageTk.PhotoImage(Image.fromarray(disp)))
+                frames.append(f)
+            if i % 10 == 0 or i == total - 1:
+                bar.set((i + 1) / total)
+                status_lbl.configure(text=f"{i + 1} / {total} frames")
+                progress.update_idletasks()
+
+        progress.grab_release()
+        progress.destroy()
+
+        self._preview_photos = photos
+        self._preview_frames = frames
+
+    def _build_preview_window(self, target_w, target_h):
+        win = ctk.CTkToplevel(self)
+        win.title("OpenTrack Studio — Preview")
+        win.configure(fg_color=BG_ROOT)
+        win.geometry(f"{target_w}x{target_h + 90}")
+        win.protocol("WM_DELETE_WINDOW", self._close_preview_window)
+        self._preview_win = win
+
+        canvas = tk.Canvas(win, width=target_w, height=target_h,
+                           bg=BG_ROOT, highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True, padx=0, pady=0)
+        self._preview_canvas = canvas
+        self._preview_image_id = canvas.create_image(
+            target_w // 2, target_h // 2, image=self._preview_photos[0])
+
+        bar = ctk.CTkFrame(win, fg_color=BG_PANEL, height=80, corner_radius=0)
+        bar.pack(fill="x", side="bottom")
+
+        btn_row = ctk.CTkFrame(bar, fg_color="transparent")
+        btn_row.pack(pady=(8, 2))
+        self._preview_play_btn = ctk.CTkButton(
+            btn_row, text="▶", width=56, height=34,
+            fg_color=TM_ORANGE, hover_color=TM_ORANGE_DARK,
+            text_color="#000000", font=ctk.CTkFont(size=14, weight="bold"),
+            command=self._preview_toggle_play,
+        )
+        self._preview_play_btn.pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn_row, text="⏮", width=44, height=34,
+            fg_color=BG_WIDGET, hover_color=BG_PANEL_2, text_color=FG_TEXT,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=lambda: self._preview_seek(0),
+        ).pack(side="left", padx=4)
+
+        n = len(self._preview_photos)
+        self._preview_slider = ctk.CTkSlider(
+            bar, from_=0, to=max(0, n - 1), number_of_steps=max(1, n - 1),
+            command=self._preview_on_slider,
+            progress_color=TM_ORANGE, button_color=TM_ORANGE,
+            button_hover_color="#FF7A30", fg_color=BG_WIDGET, height=16,
+        )
+        self._preview_slider.set(0)
+        self._preview_slider.pack(fill="x", padx=16, pady=(0, 8))
+
+        win.bind("<space>", lambda e: self._preview_toggle_play())
+        win.bind("<Left>", lambda e: self._preview_seek(self._preview_idx - 1))
+        win.bind("<Right>", lambda e: self._preview_seek(self._preview_idx + 1))
+        win.focus_set()
+
+        self._preview_idx = 0
+        self._preview_playing = True
+        self._preview_clock_start = time.perf_counter()
+        self._preview_idx_start = 0
+        self._preview_tick()
+
+    def _preview_toggle_play(self):
+        if not self._preview_photos:
+            return
+        if self._preview_playing:
+            self._preview_playing = False
+            self._preview_play_btn.configure(text="▶")
+            if self._preview_job is not None:
+                try:
+                    self.after_cancel(self._preview_job)
+                except Exception:
+                    pass
+                self._preview_job = None
+        else:
+            if self._preview_idx >= len(self._preview_photos) - 1:
+                self._preview_seek(0)
+            self._preview_playing = True
+            self._preview_play_btn.configure(text="❚❚")
+            self._preview_clock_start = time.perf_counter()
+            self._preview_idx_start = self._preview_idx
+            self._preview_tick()
+
+    def _preview_tick(self):
+        if not self._preview_playing or not self._preview_photos:
+            return
+        n = len(self._preview_photos)
+        if self._preview_idx >= n - 1:
+            self._preview_toggle_play()
+            return
+
+        elapsed = time.perf_counter() - self._preview_clock_start
+        target = self._preview_idx_start + int(round(elapsed * self.playback_fps))
+        target = max(self._preview_idx + 1, target)
+        target = min(target, n - 1)
+        self._preview_show(target)
+
+        if self._preview_idx >= n - 1:
+            self._preview_toggle_play()
+            return
+
+        delay = max(1, int(round(1000.0 / self.playback_fps)))
+        self._preview_job = self.after(delay, self._preview_tick)
+
+    def _preview_show(self, idx):
+        if not self._preview_photos:
+            return
+        idx = max(0, min(idx, len(self._preview_photos) - 1))
+        self._preview_idx = idx
+        self._preview_canvas.itemconfig(
+            self._preview_image_id, image=self._preview_photos[idx])
+        self._preview_slider_guard = True
+        self._preview_slider.set(idx)
+        self._preview_slider_guard = False
+
+    def _preview_seek(self, idx):
+        self._preview_playing = False
+        if self._preview_play_btn is not None:
+            self._preview_play_btn.configure(text="▶")
+        if self._preview_job is not None:
+            try:
+                self.after_cancel(self._preview_job)
+            except Exception:
+                pass
+            self._preview_job = None
+        self._preview_show(idx)
+
+    def _preview_on_slider(self, value):
+        if self._preview_slider_guard:
+            return
+        self._preview_seek(int(round(float(value))))
+
+    def _close_preview_window(self):
+        self._preview_playing = False
+        if self._preview_job is not None:
+            try:
+                self.after_cancel(self._preview_job)
+            except Exception:
+                pass
+            self._preview_job = None
+        if self._preview_win is not None:
+            try:
+                self._preview_win.destroy()
+            except Exception:
+                pass
+        self._preview_win = None
+        self._preview_canvas = None
+        self._preview_photos = []
+        self._preview_frames = []
+
+    # ================================================================== #
     #  Shutdown
     # ================================================================== #
 
     def _on_close(self):
         self._stop_play()
+        self._close_preview_window()
         if self.cap is not None:
             self.cap.release()
         self.destroy()
