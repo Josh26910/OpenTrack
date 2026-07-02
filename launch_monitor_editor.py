@@ -498,8 +498,8 @@ class LaunchMonitorApp(ctk.CTk):
 
     def _bind_keys(self):
         self.bind("<space>", lambda e: self._hotkey(self.toggle_play))
-        self.bind("<Left>", lambda e: self._hotkey(lambda: self.step(-1)))
-        self.bind("<Right>", lambda e: self._hotkey(lambda: self.step(1)))
+        self.bind("<Left>", lambda e: self.step(-1))
+        self.bind("<Right>", lambda e: self.step(1))
 
     def _hotkey(self, action):
         """Run a transport hotkey unless the user is typing in an entry."""
@@ -1220,17 +1220,34 @@ class LaunchMonitorApp(ctk.CTk):
 
     def _draw_click_markers(self, frame, idx):
         """Show manual marks while the shot is being annotated."""
-        r_big = max(8, self.frame_w // 120)
+        r_dot = max(6, self.frame_w // 140)
+        r_halo = r_dot + 3
 
+        # draw all launch clicks as persistent dots with numbers
         for i, (f, x, y) in enumerate(self.launch_clicks):
             p = (int(round(x)), int(round(y)))
             on_frame = (f == idx)
-            color = ORANGE_BGR if on_frame else (0, 60, 170)
-            cv2.drawMarker(frame, p, color, cv2.MARKER_CROSS,
-                           r_big * 2, 2 if on_frame else 1, cv2.LINE_AA)
-            cv2.putText(frame, str(i + 1), (p[0] + r_big, p[1] - r_big),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            if on_frame:
+                # highlight current frame: orange dot with halo
+                cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, ORANGE_BGR, -1, cv2.LINE_AA)
+                # white outline for contrast
+                cv2.circle(frame, p, r_dot, WHITE_BGR, 1, cv2.LINE_AA)
+            else:
+                # past clicks: blue dot with subtle outline
+                cv2.circle(frame, p, r_dot, (0, 80, 180), -1, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, (60, 140, 220), 1, cv2.LINE_AA)
 
+            # number label to the right of the dot
+            num_text = str(i + 1)
+            offset_x = p[0] + r_dot + 6
+            offset_y = p[1] + 5
+            cv2.putText(frame, num_text, (offset_x, offset_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        ORANGE_BGR if on_frame else (100, 150, 220),
+                        2 if on_frame else 1, cv2.LINE_AA)
+
+        # draw apex and landing markers
         for click, tag in ((self.apex_click, "APEX"),
                            (self.landing_click, "LAND")):
             if click is None:
@@ -1238,10 +1255,19 @@ class LaunchMonitorApp(ctk.CTk):
             f, x, y = click
             p = (int(round(x)), int(round(y)))
             on_frame = (f == idx)
-            color = ORANGE_BGR if on_frame else (0, 60, 170)
-            cv2.circle(frame, p, r_big, color, 2, cv2.LINE_AA)
-            cv2.putText(frame, tag, (p[0] + r_big + 4, p[1] + 4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            if on_frame:
+                cv2.circle(frame, p, r_halo, BLACK_BGR, r_halo // 2, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, ORANGE_BGR, -1, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, WHITE_BGR, 1, cv2.LINE_AA)
+            else:
+                cv2.circle(frame, p, r_dot, (0, 80, 180), -1, cv2.LINE_AA)
+                cv2.circle(frame, p, r_dot, (60, 140, 220), 1, cv2.LINE_AA)
+
+            # tag label to the right
+            cv2.putText(frame, tag, (p[0] + r_dot + 6, p[1] + 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                        ORANGE_BGR if on_frame else (100, 150, 220),
+                        2 if on_frame else 1, cv2.LINE_AA)
 
     def _draw_tracking_ring(self, frame, idx):
         """
