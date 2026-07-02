@@ -139,7 +139,8 @@ class LaunchMonitorApp(ctk.CTk):
         # ---------------- video state ----------------
         self.cap = None
         self.video_path = None
-        self.fps = 30.0
+        self.fps = 30.0                # true capture fps — used for physics
+        self.playback_fps = 30.0       # on-screen playback pacing (slow-mo)
         self.frame_count = 0
         self.frame_w = 0
         self.frame_h = 0
@@ -270,6 +271,47 @@ class LaunchMonitorApp(ctk.CTk):
             text_color=FG_TEXT, font=ctk.CTkFont(size=16, weight="bold"),
             command=self._rotate_cw,
         ).pack(side="left", padx=2)
+
+        # -- playback speed / slow motion -----------------------------------
+        fps_row = ctk.CTkFrame(sb, fg_color="transparent")
+        fps_row.pack(fill="x", padx=16, pady=(6, 2))
+        cap_col = ctk.CTkFrame(fps_row, fg_color="transparent")
+        cap_col.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkLabel(
+            cap_col, text="Capture FPS", font=ctk.CTkFont(size=10),
+            text_color=FG_MUTED, anchor="w",
+        ).pack(fill="x")
+        self.capture_fps_entry = ctk.CTkEntry(
+            cap_col, fg_color=BG_WIDGET, border_color=BORDER,
+            text_color=FG_TEXT, height=28,
+        )
+        self.capture_fps_entry.pack(fill="x")
+
+        play_col = ctk.CTkFrame(fps_row, fg_color="transparent")
+        play_col.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        ctk.CTkLabel(
+            play_col, text="Playback FPS", font=ctk.CTkFont(size=10),
+            text_color=FG_MUTED, anchor="w",
+        ).pack(fill="x")
+        self.playback_fps_entry = ctk.CTkEntry(
+            play_col, fg_color=BG_WIDGET, border_color=BORDER,
+            text_color=FG_TEXT, height=28,
+        )
+        self.playback_fps_entry.pack(fill="x")
+
+        ctk.CTkButton(
+            sb, text="Apply Speed", height=28,
+            fg_color=BG_WIDGET, hover_color=BG_PANEL_2,
+            border_color=BORDER, border_width=1,
+            text_color=FG_TEXT, font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._apply_fps_settings,
+        ).pack(fill="x", padx=16, pady=(4, 2))
+
+        self.slowmo_lbl = ctk.CTkLabel(
+            sb, text="", font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=TM_ORANGE, anchor="w",
+        )
+        self.slowmo_lbl.pack(fill="x", padx=16, pady=(0, 6))
 
         # -- 2. calibration -------------------------------------------------
         self._section(sb, "2  ·  CALIBRATION")
@@ -568,6 +610,12 @@ class LaunchMonitorApp(ctk.CTk):
         self.video_path = path
         fps = cap.get(cv2.CAP_PROP_FPS)
         self.fps = fps if fps and fps > 1 else 30.0
+        # high-speed / slow-mo footage (e.g. a 240fps phone capture) is
+        # meant to be studied slowly — default playback to a comfortable
+        # 30fps viewing rate whenever the capture rate is well above that,
+        # while physics (ball speed, trajectory timing) always uses the
+        # true self.fps captured above, never the playback rate.
+        self.playback_fps = 30.0 if self.fps > 60.0 else self.fps
         count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.frame_count = count if count > 0 else 1
         self.frame_h, self.frame_w = first.shape[:2]
@@ -599,9 +647,60 @@ class LaunchMonitorApp(ctk.CTk):
             text=f"{name}\n{self.frame_w}×{self.frame_h}  ·  "
                  f"{self.fps:.2f} fps  ·  {self.frame_count} frames",
         )
+
+        self.capture_fps_entry.delete(0, "end")
+        self.capture_fps_entry.insert(0, f"{self.fps:g}")
+        self.playback_fps_entry.delete(0, "end")
+        self.playback_fps_entry.insert(0, f"{self.playback_fps:g}")
+        self._update_slowmo_label()
+
         self._set_status(
             "Video loaded. Calibrate, then step to impact and click the ball.")
         self._render()
+
+    def _update_slowmo_label(self):
+        if self.fps <= 0 or self.playback_fps <= 0:
+            self.slowmo_lbl.configure(text="")
+            return
+        factor = self.fps / self.playback_fps
+        if factor > 1.02:
+            self.slowmo_lbl.configure(text=f"▶ {factor:.1f}× slow motion")
+        elif factor < 0.98:
+            self.slowmo_lbl.configure(text=f"▶ {1.0 / factor:.1f}× fast forward")
+        else:
+            self.slowmo_lbl.configure(text="▶ real-time playback")
+
+    def _apply_fps_settings(self):
+        if self.cap is None:
+            return
+        try:
+            cap_fps = float(self.capture_fps_entry.get())
+            play_fps = float(self.playback_fps_entry.get())
+        except ValueError:
+            messagebox.showwarning(
+                "Invalid FPS", "Capture FPS and Playback FPS must be numbers.")
+            return
+        if cap_fps <= 0 or play_fps <= 0:
+            messagebox.showwarning(
+                "Invalid FPS", "FPS values must be greater than zero.")
+            return
+
+        self.fps = cap_fps
+        self.playback_fps = play_fps
+        self._update_slowmo_label()
+        self._update_frame_label()
+        # physics timing depends on self.fps — refresh any existing track
+        if self.trajectory is not None and self.apex_click is not None \
+                and self.landing_click is not None and hasattr(self, "_fit_x"):
+            try:
+                self._fit_trajectory()
+                self._compute_stats()
+                self._update_sidebar_stats()
+            except Exception:                           # noqa: BLE001
+                pass
+        self._set_status(
+            f"Capture rate set to {cap_fps:g} fps, playback set to "
+            f"{play_fps:g} fps.")
 
     def _get_frame(self, idx):
         """Return the raw BGR frame at idx (cached / sequential-read aware)."""
@@ -671,7 +770,7 @@ class LaunchMonitorApp(ctk.CTk):
             self._stop_play()
             return
         self.seek(self.current_idx + 1)
-        delay = max(1, int(round(1000.0 / self.fps)))
+        delay = max(1, int(round(1000.0 / self.playback_fps)))
         self._play_job = self.after(delay, self._play_tick)
 
     def _stop_play(self):
@@ -837,6 +936,7 @@ class LaunchMonitorApp(ctk.CTk):
             self._set_status(
                 f"Launch click {n} recorded on frame {self.current_idx}. "
                 "Auto-advanced to the next frame.")
+            self._update_live_preview()
             # auto-advance to make frame-by-frame clicking effortless
             if self.current_idx < self.frame_count - 1:
                 self.seek(self.current_idx + 1)
@@ -850,6 +950,7 @@ class LaunchMonitorApp(ctk.CTk):
             self.apex_lbl.configure(
                 text=f"Apex: frame {self.current_idx}")
             self._set_status(f"Apex marked on frame {self.current_idx}.")
+            self._update_live_preview()
             self._render()
             return
 
@@ -859,6 +960,7 @@ class LaunchMonitorApp(ctk.CTk):
             self.landing_lbl.configure(
                 text=f"Landing: frame {self.current_idx}")
             self._set_status(f"Landing marked on frame {self.current_idx}.")
+            self._update_live_preview()
             self._render()
             return
 
@@ -953,6 +1055,46 @@ class LaunchMonitorApp(ctk.CTk):
     # ================================================================== #
     #  Trajectory fitting & stats
     # ================================================================== #
+
+    def _update_live_preview(self):
+        """Recompute a lightweight, live tracking path from whatever marks
+        currently exist (launch clicks, plus apex/landing if set), so the
+        tracking ring follows the ball immediately as the user clicks —
+        without waiting for "Track Shot". Piecewise-linear interpolation
+        between consecutive marked frames; frames outside the marked range
+        (e.g. before impact) intentionally show no ring, since there is no
+        click data to base a position on there. Overwritten by the full
+        physics-based parabolic fit once "Track Shot" is pressed.
+        """
+        points = list(self.launch_clicks)
+        if self.apex_click is not None:
+            points.append(self.apex_click)
+        if self.landing_click is not None:
+            points.append(self.landing_click)
+
+        # de-duplicate by frame (keep first occurrence) and sort by frame
+        seen = set()
+        uniq = []
+        for p in sorted(points, key=lambda p: p[0]):
+            if p[0] not in seen:
+                uniq.append(p)
+                seen.add(p[0])
+
+        if len(uniq) < 2:
+            self.trajectory = None
+            return
+
+        frames = [p[0] for p in uniq]
+        xs = [p[1] for p in uniq]
+        ys = [p[2] for p in uniq]
+
+        f0, f1 = frames[0], frames[-1]
+        traj = {}
+        for f in range(f0, f1 + 1):
+            x = float(np.interp(f, frames, xs))
+            y = float(np.interp(f, frames, ys))
+            traj[f] = (x, y)
+        self.trajectory = traj
 
     def track_shot(self):
         if self.cap is None:
@@ -1234,9 +1376,12 @@ class LaunchMonitorApp(ctk.CTk):
         frame = _rotate_frame(frame, self.rotation)
 
         self._draw_calibration(frame)
-        if self.trajectory is None:
-            self._draw_click_markers(frame, idx)
-        else:
+        # numbered reference dots for every click are always shown; the
+        # tracking ring is layered on top the moment enough clicks exist to
+        # interpolate a path (live preview), and gets replaced by the full
+        # physics fit once Track Shot is pressed.
+        self._draw_click_markers(frame, idx)
+        if self.trajectory is not None:
             if self.show_ring_var.get():
                 self._draw_tracking_ring(frame, idx)
             self._draw_stat_tiles(frame, idx)
