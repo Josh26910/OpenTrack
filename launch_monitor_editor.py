@@ -1282,9 +1282,20 @@ class LaunchMonitorApp(ctk.CTk):
         # or apex down to landing), there's no direct data for those
         # in-between frames at all -- connecting them with a straight line
         # would be flatly wrong for a ball in flight, so that stretch uses
-        # the physics-fit parabola instead. The fit still uses every clicked
-        # point (weighted heavily at impact/apex/landing) to shape itself,
-        # so it's informed by your data even where it has to interpolate.
+        # the physics-fit parabola's *shape* instead.
+        #
+        # The raw curve's absolute position isn't used directly, though: the
+        # global fit only has to roughly balance every point at once (it
+        # isn't forced through each intermediate click), so its value at the
+        # exact frame bordering a dense clicked segment can land meaningfully
+        # away from where those literal clicks actually left off -- the
+        # very next frame after real, accurate data would visibly snap
+        # backward or sideways to an unrelated position. Anchoring the curve
+        # to pass exactly through both endpoints of the segment (by blending
+        # in the offset between the raw curve and the real clicks at each
+        # end) keeps its arc/deceleration shape while guaranteeing it always
+        # continues smoothly from the last real click and arrives exactly on
+        # the next one, with no seam.
         #
         # Either way, every frame you actually clicked is set to your exact
         # raw pixel -- never overridden by the curve.
@@ -1297,8 +1308,16 @@ class LaunchMonitorApp(ctk.CTk):
             if gap <= 1:
                 continue
             if gap >= GAP_THRESHOLD:
+                cxa, cya = curve_pos(fa)
+                cxb, cyb = curve_pos(fb)
+                off_xa, off_ya = xa - cxa, ya - cya
+                off_xb, off_yb = xb - cxb, yb - cyb
                 for f in range(fa + 1, fb):
-                    traj[f] = curve_pos(f)
+                    frac = (f - fa) / gap
+                    cxf, cyf = curve_pos(f)
+                    ox = off_xa + (off_xb - off_xa) * frac
+                    oy = off_ya + (off_yb - off_ya) * frac
+                    traj[f] = (cxf + ox, cyf + oy)
             else:
                 for f in range(fa + 1, fb):
                     frac = (f - fa) / gap
