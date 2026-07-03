@@ -172,13 +172,16 @@ class LaunchMonitorApp(ctk.CTk):
         # ---------------- preview window (pre-rendered, no live drawing) ----
         self._preview_win = None
         self._preview_canvas = None
-        self._preview_photos = []      # pre-baked PhotoImage per frame
+        self._preview_photos = []      # pre-baked PIL Image per frame (base res)
         self._preview_frames = []      # raw video-frame index per entry above
         self._preview_idx = 0          # index into _preview_photos
         self._preview_playing = False
         self._preview_job = None
         self._preview_clock_start = 0.0
         self._preview_idx_start = 0
+        self._preview_base_w = 0       # baked frame size -- the source for
+        self._preview_base_h = 0       # on-the-fly scale-to-window display
+        self._preview_current_photo = None  # keeps the displayed PhotoImage alive
         self._preview_slider = None
         self._preview_play_btn = None
         self._preview_slider_guard = False
@@ -1961,7 +1964,12 @@ class LaunchMonitorApp(ctk.CTk):
                 disp = cv2.resize(composed, (st["target_w"], st["target_h"]),
                                   interpolation=st["interp"])
                 disp = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
-                st["photos"].append(ImageTk.PhotoImage(Image.fromarray(disp)))
+                # kept as a plain PIL Image, not a PhotoImage: the display
+                # size is decided at show-time (scaled to fit the preview
+                # window), so a fixed-size PhotoImage per frame would only
+                # ever show at this baked resolution however large the
+                # window grew.
+                st["photos"].append(Image.fromarray(disp))
                 st["frames"].append(f)
         st["i"] = end
         st["bar"].set(st["i"] / st["total"])
@@ -1987,15 +1995,24 @@ class LaunchMonitorApp(ctk.CTk):
         win.title("OpenTrack Studio — Preview")
         win.configure(fg_color=BG_ROOT)
         win.geometry(f"{target_w}x{target_h + 90}")
+        win.minsize(320, 240 + 90)
+        win.resizable(True, True)
         win.protocol("WM_DELETE_WINDOW", self._close_preview_window)
         self._preview_win = win
+        self._preview_base_w = target_w
+        self._preview_base_h = target_h
 
         canvas = tk.Canvas(win, width=target_w, height=target_h,
                            bg=BG_ROOT, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True, padx=0, pady=0)
         self._preview_canvas = canvas
-        self._preview_image_id = canvas.create_image(
-            target_w // 2, target_h // 2, image=self._preview_photos[0])
+        self._preview_image_id = canvas.create_image(0, 0, image=None)
+        # every resize (including the window opening at its initial size)
+        # redraws the current frame scaled to fill the new canvas -- the
+        # frames stay baked at a small fixed resolution for memory/speed,
+        # only the on-screen copy is scaled up or down to match the window.
+        canvas.bind("<Configure>", self._on_preview_canvas_resize)
+        self._preview_show(0)
 
         bar = ctk.CTkFrame(win, fg_color=BG_PANEL, height=80, corner_radius=0)
         bar.pack(fill="x", side="bottom")
@@ -2084,11 +2101,45 @@ class LaunchMonitorApp(ctk.CTk):
             return
         idx = max(0, min(idx, len(self._preview_photos) - 1))
         self._preview_idx = idx
-        self._preview_canvas.itemconfig(
-            self._preview_image_id, image=self._preview_photos[idx])
+        self._render_preview_frame(idx)
         self._preview_slider_guard = True
         self._preview_slider.set(idx)
         self._preview_slider_guard = False
+
+    def _render_preview_frame(self, idx):
+        """Scale the baked frame at `idx` to fill the current canvas size.
+
+        Frames are baked once at a small fixed resolution (memory/speed);
+        the window itself is freely resizable, so what actually goes on
+        screen is a fresh resize of that base image to fit whatever the
+        canvas measures right now, letterboxed to preserve aspect ratio
+        and centred -- this runs on every shown frame and every resize
+        rather than only at bake time, so the video always fills the
+        preview window instead of sitting pinned at its baked pixel size.
+        """
+        canvas = self._preview_canvas
+        if canvas is None or not self._preview_photos:
+            return
+        base = self._preview_photos[idx]
+        cw = canvas.winfo_width()
+        ch = canvas.winfo_height()
+        if cw < 2 or ch < 2:
+            cw, ch = self._preview_base_w, self._preview_base_h
+
+        scale = min(cw / self._preview_base_w, ch / self._preview_base_h)
+        scale = max(scale, 0.01)
+        dw = max(1, int(round(self._preview_base_w * scale)))
+        dh = max(1, int(round(self._preview_base_h * scale)))
+        interp = Image.LANCZOS if scale > 1.0 else Image.BILINEAR
+        resized = base.resize((dw, dh), interp)
+
+        photo = ImageTk.PhotoImage(resized)
+        self._preview_current_photo = photo   # keep a live reference
+        canvas.itemconfig(self._preview_image_id, image=photo)
+        canvas.coords(self._preview_image_id, cw // 2, ch // 2)
+
+    def _on_preview_canvas_resize(self, event):
+        self._render_preview_frame(self._preview_idx)
 
     def _preview_seek(self, idx):
         self._preview_playing = False
@@ -2135,6 +2186,7 @@ class LaunchMonitorApp(ctk.CTk):
         self._preview_canvas = None
         self._preview_photos = []
         self._preview_frames = []
+        self._preview_current_photo = None
 
     # ================================================================== #
     #  Shutdown
