@@ -1,0 +1,5 @@
+OpenTrackStudio.xcodeproj/
+build/
+DerivedData/
+Payload/
+*.ipa
