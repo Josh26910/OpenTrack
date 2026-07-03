@@ -1292,21 +1292,23 @@ class LaunchMonitorApp(ctk.CTk):
         # off frame and never descended). Instead each wide gap is built to
         # be *monotone toward its target* on both axes:
         #
-        #   * last click -> APEX: vertical motion is a monotone cubic
-        #     Hermite that starts at the clicked vertical speed (clamped
-        #     into the Fritsch-Carlson monotone region so it can never
-        #     overshoot the apex) and arrives with ZERO vertical velocity --
-        #     the apex mark is the true peak of the flight;
+        #   * last click -> APEX: holds the exact clicked launch speed for
+        #     as long as physically possible, then eases down to a dead
+        #     stop right at the apex (see _hold_then_ease below) -- rather
+        #     than reducing speed the instant the clicks run out, which
+        #     read as the trace hitting a wall one frame after perfect,
+        #     accurate data;
         #   * APEX -> LANDING: a from-rest gravity parabola,
         #     y = y_apex + (y_land - y_apex) * (tau/T)^2, which leaves the
         #     apex flat (C1 through the peak) and accelerates downward to
         #     hit the landing mark exactly;
-        #   * horizontal motion everywhere is a constant-deceleration glide
-        #     whose launch speed is the clicked/chained speed clamped into
-        #     [0, 2*Dx/T] -- as close to the clicked speed as physics
-        #     allows while still guaranteeing forward-only motion that ends
-        #     exactly on the mark. The descent chains the ascent's exit
-        #     speed, so speed stays continuous through the apex.
+        #   * horizontal motion in the other (non-apex) gaps is a constant-
+        #     deceleration glide whose launch speed is the clicked/chained
+        #     speed clamped into [0, 2*Dx/T] -- as close to the clicked
+        #     speed as physics allows while still guaranteeing forward-only
+        #     motion that ends exactly on the mark. The descent chains the
+        #     ascent's exit speed, so speed stays continuous through the
+        #     apex.
         #
         # Net effect: the flight is confined to the box spanned by the
         # marks (it cannot fly off screen), rises to the apex, and descends
@@ -1323,6 +1325,39 @@ class LaunchMonitorApp(ctk.CTk):
             # (2D/T). Anything outside that window guarantees overshoot.
             lo, hi = sorted((0.0, 2.0 * D / T))
             return min(max(v, lo), hi)
+
+        def hold_then_ease_h(v0, D, T):
+            """How much of a T-frame gap can be spent at the constant
+            clicked speed v0 before a deceleration-to-zero phase has to
+            start, to land exactly on distance D with zero velocity at the
+            end.
+
+            Real projectile motion decelerates at a *constant* rate the
+            whole way (a plain Hermite does this), which is exactly why
+            clamping the launch speed down to fit that single-phase model
+            produced a visible speed cut the instant the clicks ran out.
+            Splitting the gap into a flat "hold" at the true clicked speed
+            followed by a shorter linear deceleration reproduces the exact
+            same physics (constant deceleration has a fixed area-under-the
+            -curve regardless of when it starts) while pushing that
+            deceleration as late as possible, matching what the eye expects:
+            speed stays put, then eases out right at the top.
+
+            Returns (H, ease_p): H is the hold length in frames (0 if the
+            clicked speed is too fast to hold at all -- see ease_p) and
+            ease_p is None unless the clicked speed exceeds what a
+            zero-hold linear decel can absorb, in which case it's the
+            exponent of a front-loaded power-law ease used for the *whole*
+            gap instead (still exact, still monotone, just decelerating
+            earlier since the clicked speed left no other way to land on
+            the mark without overshooting it).
+            """
+            r = (v0 * T / D) if abs(D) > 1e-6 else 2.0
+            if r <= 1.0:
+                return 0.0, None, True   # too slow to hold at all -- caller falls back
+            if r <= 2.0:
+                return T * (2.0 - r) / r, None, False
+            return 0.0, r - 1.0, False
 
         traj = {}
         prev_end_vel = None     # px/frame velocity at the end of the previous segment
@@ -1360,19 +1395,40 @@ class LaunchMonitorApp(ctk.CTk):
                 else:
                     v_in = (Dx / T, Dy / T)
 
-            # horizontal: clamped constant-deceleration glide onto the mark
+            # horizontal: clamped constant-deceleration glide onto the mark.
+            # Only the VERTICAL axis gets the hold-then-ease treatment
+            # below -- "apex" is specifically defined as zero *vertical*
+            # velocity, so only y has a real endpoint to hold toward and
+            # ease out of. Sharing that same hold length with x as well
+            # was tried and rejected: x has no such checkpoint, and forcing
+            # it to hold exactly as long as y does could carry x clean past
+            # its own target before the ease phase had to reverse direction
+            # to drag it back -- a visible backward wobble, worse than the
+            # bug being fixed. x keeps its original single-phase glide.
             v0x = monotone_v0(v_in[0], Dx, T)
             sax = 2.0 * (Dx - v0x * T) / (T * T)
 
             ends_at_apex = (i + 1 == n_launch)
             starts_at_apex = (i == n_launch)
+
+            hold_H = None    # ascent only: frames held at the clicked speed
+            ease_p = None    # ascent only: front-loaded power-ease exponent
             if starts_at_apex:
                 # descent: from rest at the apex, fall onto the landing mark
                 vy_end = 2.0 * Dy / T
             elif ends_at_apex:
-                # ascent: monotone cubic Hermite, zero slope at the apex
-                lo, hi = sorted((0.0, 3.0 * Dy / T))
-                m0y = min(max(v_in[1], lo), hi)
+                # ascent: hold the clicked vertical speed, then ease to a
+                # stop at the apex -- see hold_then_ease_h's docstring
+                H, ease_p, too_slow = hold_then_ease_h(v_in[1], Dy, T)
+                if too_slow:
+                    # clicked speed alone can't reach the apex even without
+                    # ever decelerating -- rare edge case (noisy/slow
+                    # clicks); fall back to the old monotone Hermite, which
+                    # handles it reasonably
+                    lo, hi = sorted((0.0, 3.0 * Dy / T))
+                    m0y = min(max(v_in[1], lo), hi)
+                elif ease_p is None:
+                    hold_H = H
                 vy_end = 0.0
             else:
                 # wide gap between launch clicks: same clamped glide as x
@@ -1383,13 +1439,28 @@ class LaunchMonitorApp(ctk.CTk):
             for f in range(fa + 1, fb):
                 tau = f - fa
                 x = xa + v0x * tau + 0.5 * sax * tau * tau
-                if starts_at_apex:
-                    y = ya + Dy * (tau / T) ** 2
+                if ends_at_apex and ease_p is not None:
+                    # clicked speed outruns even a zero-hold linear decel --
+                    # front-load the deceleration across the whole gap so
+                    # it still lands exactly on the apex at zero velocity.
+                    frac = 1.0 - (1.0 - tau / T) ** (ease_p + 1.0)
+                    y = ya + Dy * frac
+                elif ends_at_apex and hold_H is not None:
+                    if tau <= hold_H:
+                        y = ya + v_in[1] * tau
+                    else:
+                        e_tau = tau - hold_H
+                        E = T - hold_H
+                        sy = ya + v_in[1] * hold_H
+                        y = (sy + v_in[1] * e_tau
+                             - 0.5 * (v_in[1] / E) * e_tau * e_tau)
                 elif ends_at_apex:
                     s = tau / T
                     h00 = (2.0 * s - 3.0) * s * s + 1.0
                     h10 = ((s - 2.0) * s + 1.0) * s
                     y = h00 * ya + (1.0 - h00) * yb + h10 * T * m0y
+                elif starts_at_apex:
+                    y = ya + Dy * (tau / T) ** 2
                 else:
                     y = ya + v0y * tau + 0.5 * say * tau * tau
                 traj[f] = (x, y)
