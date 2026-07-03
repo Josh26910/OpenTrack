@@ -1,0 +1,55 @@
+name: Build iOS (unsigned .ipa for AltStore sideload)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build unsigned .app for device
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project OpenTrackStudio.xcodeproj \
+            -scheme OpenTrackStudio \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package as .ipa (Payload/OpenTrackStudio.app)
+        working-directory: ios
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/OpenTrackStudio.app"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r OpenTrackStudio-unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenTrackStudio-unsigned-ipa
+          path: ios/OpenTrackStudio-unsigned.ipa
+          retention-days: 14
