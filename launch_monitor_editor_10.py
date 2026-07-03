@@ -208,6 +208,7 @@ class LaunchMonitorApp(ctk.CTk):
         self.stat_warnings = {}        # {key: True} for implausible values
         self.overrides = {}            # user-typed values from tile edits
         self._tile_rects = {}          # {key: (x1,y1,x2,y2)} video coords
+        self._tile_entry_editing = {k: False for k, *_ in STAT_DEFS}
 
         # ---------------- display transform ----------------
         # (rotated_frame_w, rotated_frame_h) for the image currently placed
@@ -464,16 +465,33 @@ class LaunchMonitorApp(ctk.CTk):
         ).pack(anchor="w", padx=16, pady=(4, 2))
 
         self.tile_vars = {}
-        for key, label, _unit, _dec in STAT_DEFS:
+        self.tile_entries = {}
+        for key, label, unit, _dec in STAT_DEFS:
+            row = ctk.CTkFrame(sb, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=2)
             var = ctk.BooleanVar(value=True)
             self.tile_vars[key] = var
             ctk.CTkCheckBox(
-                sb, text=f"Tile — {label.title()}", variable=var,
+                row, text=f"Tile — {label.title()}", variable=var,
                 command=self._render, checkbox_height=18, checkbox_width=18,
                 fg_color=TM_ORANGE, hover_color=TM_ORANGE_DARK,
                 border_color=BORDER, text_color=FG_TEXT,
                 font=ctk.CTkFont(size=12),
-            ).pack(anchor="w", padx=16, pady=2)
+            ).pack(side="left")
+            # type a value directly to override that stat -- same override
+            # mechanism as double-clicking the tile on the video, just
+            # reachable from the sidebar without needing a shot tracked yet
+            entry = ctk.CTkEntry(
+                row, width=60, height=22, placeholder_text=unit,
+                font=ctk.CTkFont(size=11), fg_color=BG_WIDGET,
+                border_color=BORDER, text_color=FG_TEXT,
+                justify="right",
+            )
+            entry.pack(side="right")
+            entry.bind("<FocusIn>", lambda e, k=key: self._tile_entry_editing.__setitem__(k, True))
+            entry.bind("<Return>", lambda e, k=key: self._on_tile_entry_commit(k))
+            entry.bind("<FocusOut>", lambda e, k=key: self._on_tile_entry_commit(k))
+            self.tile_entries[key] = entry
 
         # -- shot data readout -------------------------------------------------
         self._section(sb, "SHOT DATA")
@@ -1608,6 +1626,44 @@ class LaunchMonitorApp(ctk.CTk):
                 text=text,
                 text_color=TM_ORANGE if self._stat_is_warning(key) else FG_TEXT,
             )
+
+            # keep the sidebar entry box in sync with the current value --
+            # but never while the user is actively typing in it (tracked
+            # via <FocusIn>/<FocusOut> rather than polling focus_get(),
+            # which doesn't reliably identify a composite CTkEntry), or
+            # every recompute would stomp on what they're mid-way entering
+            entry = self.tile_entries.get(key)
+            if entry is not None and not self._tile_entry_editing.get(key):
+                entry.delete(0, "end")
+                if val is not None:
+                    entry.insert(0, f"{val:.{dec}f}")
+
+    def _on_tile_entry_commit(self, key):
+        self._tile_entry_editing[key] = False
+        meta = {k: (label, unit, dec) for k, label, unit, dec in STAT_DEFS}
+        label, unit, dec = meta[key]
+        entry = self.tile_entries[key]
+        raw = entry.get().strip()
+
+        if raw == "":
+            if key in self.overrides:
+                del self.overrides[key]
+                self._set_status(f"{label.title()} override cleared.")
+                self._update_sidebar_stats()
+                self._render()
+            return
+
+        try:
+            value = float(raw)
+        except ValueError:
+            messagebox.showwarning("Invalid number", f"'{raw}' is not a valid number.")
+            self._update_sidebar_stats()
+            return
+
+        self.overrides[key] = value
+        self._set_status(f"{label.title()} overridden to {value:g} {unit}.")
+        self._update_sidebar_stats()
+        self._render()
 
     # ================================================================== #
     #  Rendering
