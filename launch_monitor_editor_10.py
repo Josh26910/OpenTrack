@@ -1833,16 +1833,18 @@ class LaunchMonitorApp(ctk.CTk):
     # built PhotoImage is showing — no OpenCV, no compositing, no per-frame
     # allocation — so it can actually keep pace with real frame rates.
 
-    # Hard caps on the preview's memory footprint. Pre-baking frames as full
+    # Memory budget for the preview's pre-bake. Pre-baking frames as full
     # PhotoImages is what makes playback smooth, but it means every preview
     # frame is fully decoded and resident in RAM at once for the whole
-    # session -- at the old caps (600 frames, 1000px) that's up to ~1.8GB of
-    # raw pixel data before Tk's own PhotoImage storage overhead on top,
-    # easily enough to make a laptop with 8-16GB of RAM start swapping,
-    # which looks and feels exactly like a freeze. At these caps the same
-    # worst case is under ~200MB.
-    PREVIEW_MAX_FRAMES = 300
+    # session. The preview now always covers the FULL video rather than
+    # truncating at a frame-count cap, so a long source video is handled by
+    # scaling the *resolution* down instead of cutting frames off the end --
+    # every frame stays in the bake, a long clip just previews smaller. The
+    # budget below keeps the worst case in the same ~200MB ballpark this was
+    # already tuned to before frame-count truncation was removed.
     PREVIEW_MAX_DIM = 640
+    PREVIEW_MIN_DIM = 160          # never shrink below this even for very long videos
+    PREVIEW_MEM_BUDGET_BYTES = 220 * 1024 * 1024
 
     def open_preview_window(self):
         if self.cap is None:
@@ -1858,21 +1860,11 @@ class LaunchMonitorApp(ctk.CTk):
 
         self._close_preview_window()
 
-        # cover the tracked range plus a little breathing room on each end,
-        # capped so pre-render time/memory stay bounded regardless of how
-        # long the source video is.
-        tracked_frames = list(self.trajectory.keys())
-        f0 = min(tracked_frames)
-        f1 = max(tracked_frames)
-        pad = max(5, int(self.fps * 0.3))
-        f0 = max(0, f0 - pad)
-        f1 = min(self.frame_count - 1, f1 + pad)
+        # the whole loaded video, start to end -- no truncation.
+        f0 = 0
+        f1 = self.frame_count - 1
 
-        if f1 - f0 + 1 > self.PREVIEW_MAX_FRAMES:
-            f1 = f0 + self.PREVIEW_MAX_FRAMES - 1
-
-        # target display size: fit within most of the screen, capped so a
-        # huge source video doesn't blow up pre-render time/memory, always
+        # target display size: fit within most of the screen, always
         # preserving the (rotated) frame's aspect ratio.
         if self.rotation in (90, 270):
             src_w, src_h = self.frame_h, self.frame_w
@@ -1883,6 +1875,16 @@ class LaunchMonitorApp(ctk.CTk):
         scale = min(max_w / src_w, max_h / src_h, 1.0)
         target_w = max(1, int(src_w * scale))
         target_h = max(1, int(src_h * scale))
+
+        # long videos get downscaled further to keep the full pre-bake
+        # within the memory budget, instead of losing frames off the end.
+        total_frames = f1 - f0 + 1
+        per_frame_bytes = target_w * target_h * 3
+        if total_frames * per_frame_bytes > self.PREVIEW_MEM_BUDGET_BYTES:
+            budget_scale = math.sqrt(
+                self.PREVIEW_MEM_BUDGET_BYTES / (total_frames * per_frame_bytes))
+            target_w = max(self.PREVIEW_MIN_DIM, int(target_w * budget_scale))
+            target_h = max(self.PREVIEW_MIN_DIM, int(target_h * budget_scale))
 
         self._start_preview_render(f0, f1, target_w, target_h)
 
