@@ -1837,17 +1837,21 @@ class LaunchMonitorApp(ctk.CTk):
     # allocation — so it can actually keep pace with real frame rates.
 
     # Memory budget for the preview's pre-bake. Pre-baking frames as full
-    # PhotoImages is what makes playback smooth, but it means every preview
-    # frame is fully decoded and resident in RAM at once for the whole
-    # session. The preview now always covers the FULL video rather than
-    # truncating at a frame-count cap, so a long source video is handled by
-    # scaling the *resolution* down instead of cutting frames off the end --
-    # every frame stays in the bake, a long clip just previews smaller. The
-    # budget below keeps the worst case in the same ~200MB ballpark this was
-    # already tuned to before frame-count truncation was removed.
-    PREVIEW_MAX_DIM = 640
-    PREVIEW_MIN_DIM = 160          # never shrink below this even for very long videos
-    PREVIEW_MEM_BUDGET_BYTES = 220 * 1024 * 1024
+    # images is what makes playback smooth, but it means every preview frame
+    # is fully decoded and resident in RAM at once for the whole session,
+    # AND the preview canvas now scales whatever it's given up to fill the
+    # window (including maximized) -- so the baked resolution IS the
+    # visible quality ceiling, not just a memory knob anymore. 640px baked
+    # and stretched across a 1440p+ monitor looked soft/blocky, so the cap
+    # is raised well past that. The preview covers the FULL video rather
+    # than truncating at a frame-count cap, so a long/high-fps source is
+    # still handled by scaling resolution down within the budget below
+    # instead of cutting frames off the end -- a typical few-second golf
+    # clip stays at full 960px quality, only a genuinely long or very
+    # high-fps recording gets shrunk.
+    PREVIEW_MAX_DIM = 960
+    PREVIEW_MIN_DIM = 360          # never shrink the shorter side below this
+    PREVIEW_MEM_BUDGET_BYTES = 500 * 1024 * 1024
 
     def open_preview_window(self):
         if self.cap is None:
@@ -1886,8 +1890,13 @@ class LaunchMonitorApp(ctk.CTk):
         if total_frames * per_frame_bytes > self.PREVIEW_MEM_BUDGET_BYTES:
             budget_scale = math.sqrt(
                 self.PREVIEW_MEM_BUDGET_BYTES / (total_frames * per_frame_bytes))
-            target_w = max(self.PREVIEW_MIN_DIM, int(target_w * budget_scale))
-            target_h = max(self.PREVIEW_MIN_DIM, int(target_h * budget_scale))
+            # clamp as a single uniform scale factor, not per-axis --
+            # flooring width/height independently could push only the
+            # shorter side up to the floor and warp the aspect ratio.
+            min_scale = self.PREVIEW_MIN_DIM / min(target_w, target_h)
+            budget_scale = min(max(budget_scale, min_scale), 1.0)
+            target_w = max(1, int(round(target_w * budget_scale)))
+            target_h = max(1, int(round(target_h * budget_scale)))
 
         self._start_preview_render(f0, f1, target_w, target_h)
 
@@ -2012,7 +2021,6 @@ class LaunchMonitorApp(ctk.CTk):
         # frames stay baked at a small fixed resolution for memory/speed,
         # only the on-screen copy is scaled up or down to match the window.
         canvas.bind("<Configure>", self._on_preview_canvas_resize)
-        self._preview_show(0)
 
         bar = ctk.CTkFrame(win, fg_color=BG_PANEL, height=80, corner_radius=0)
         bar.pack(fill="x", side="bottom")
@@ -2048,7 +2056,11 @@ class LaunchMonitorApp(ctk.CTk):
         win.bind("<Right>", lambda e: self._preview_seek(self._preview_idx + 1))
         win.focus_set()
 
-        self._preview_idx = 0
+        # show the first frame now that the slider it updates actually
+        # exists -- calling this any earlier (before the slider/play button
+        # above are built) throws and silently aborts the rest of this
+        # method, which is why they'd vanish from the window entirely.
+        self._preview_show(0)
         self._preview_playing = True
         self._preview_clock_start = time.perf_counter()
         self._preview_idx_start = 0
