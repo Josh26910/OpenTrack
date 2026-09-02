@@ -1,10 +1,11 @@
-# [Project name]
+# OpenTrack
 
 _Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/opentrack-mobile run dev` — run the native mobile app (Expo); open in Expo Go on a phone via the QR code, no Xcode/App Store/sideloading needed
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -19,14 +20,19 @@ _Replace the heading above with the project's name, and this line with one sente
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Mobile: Expo + React Native (`artifacts/opentrack-mobile`)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/opentrack` — the web app (Vite/React), OpenTrack Ballistic Visualizer
+- `artifacts/opentrack-mobile` — the native iOS/Android app (Expo Router, single screen). Same launch-monitor workflow as the web app — video import, calibration, launch/apex/landing click-marking, physics trajectory fit, tracking ring, stat tiles — built with `react-native-svg` for the overlay and `expo-av` for video. The trajectory math (`utils/ballTrajectory.ts`) is a straight port of the same physics used by the web/desktop editors: weighted quadratic fit for launch angle, segmented hold-then-ease ascent + gravity-parabola descent for the display path.
+- `artifacts/api-server` — Express API
+- `lib/db` — Drizzle schema (source of truth for tables)
+- `lib/api-spec` — OpenAPI spec (source of truth for the API contract)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- `opentrack-mobile` is intentionally client-side only, no server/DB writes — matches the local-first pattern the other OpenTrack clients use for shot data (nothing here needs to be shared across devices yet).
 
 ## Product
 

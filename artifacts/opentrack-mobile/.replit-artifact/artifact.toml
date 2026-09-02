@@ -1,0 +1,28 @@
+kind = "mobile"
+previewPath = "/"
+title = "OpenTrack"
+description = "Native iPhone/Android launch monitor: trace a golf shot's flight from swing video with calibration, click-tracking, and a physics-fit trajectory."
+version = "1.0.0"
+id = "artifacts/opentrack-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 23020
+
+[services.development]
+run = "pnpm --filter @workspace/opentrack-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/opentrack-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/opentrack-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "23020"
+BASE_PATH = "/"

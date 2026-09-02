@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "OpenTrack",
+    "slug": "opentrack-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "opentrack",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0B0E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.opentrack.mobile"
+    },
+    "android": {
+      "backgroundColor": "#0A0B0E",
+      "package": "com.opentrack.mobile"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
