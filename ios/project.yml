@@ -1,0 +1,42 @@
+name: OpenTrackStudio
+options:
+  bundleIdPrefix: com.opentrack.studio
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_PREVIEWS: YES
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  OpenTrackStudio:
+    type: application
+    platform: iOS
+    sources:
+      - path: OpenTrackStudio/Sources
+    resources:
+      - path: OpenTrackStudio/Resources
+    info:
+      path: OpenTrackStudio/Resources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSPhotoLibraryUsageDescription: "OpenTrack Studio needs access to your Photos library to import golf swing videos to trace."
+        UIRequiresFullScreen: true
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIUserInterfaceStyle: Dark
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.opentrack.studio.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
