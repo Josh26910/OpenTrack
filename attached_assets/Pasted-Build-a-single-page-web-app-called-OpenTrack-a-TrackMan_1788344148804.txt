@@ -1,0 +1,49 @@
+Build a single-page web app called "OpenTrack" — a TrackMan-inspired golf
+launch monitor video editor. Plain HTML/CSS/JS, no framework, no backend —
+everything runs client-side in the browser. Use Tailwind (CDN) for styling
+with a dark, instrument-panel aesthetic: near-black background, orange
+(#FF5A00) as the single accent color, monospace font for numbers/stats,
+Inter for UI text.
+
+Layout:
+- Top nav bar: "OPENTRACK" logo/wordmark, a status indicator (dot + text),
+  frame-rate input.
+- Main stage (center): a large video player area. Before a video is
+  loaded, show a drop-zone / "Choose video" button (accepts local video
+  files via <input type="file" accept="video/*">, played with
+  URL.createObjectURL — no upload to any server). Once loaded, show the
+  video with a transparent <canvas> overlay on top of it for drawing
+  markers and the tracking ring.
+- Below the video: a transport bar — play/pause, step back one frame,
+  step forward one frame, a scrub slider, and current time / frame
+  readout. Include rotate-left / rotate-right buttons for portrait phone
+  footage.
+- Right sidebar (stacked cards), numbered as a workflow:
+  1. Plot launch — button that arms "click mode" on the video canvas;
+     each click on the ball records a point and a small numbered marker;
+     an Undo button removes the last point.
+  2. Mark landing — click mode to mark where the ball lands, plus an
+     "off-screen" toggle for shots that fly out of frame.
+  3. Build shot — button that becomes enabled once enough points exist;
+     fits a simple flight path between the plotted points (start with a
+     basic quadratic/parabolic curve through the points — this doesn't
+     need to be physically exact yet, just a visible traced arc).
+  4. Shot data — a row of stat tiles: Ball Speed (mph), Carry (yds),
+     Launch Angle (deg), Height/Apex (ft). Values are editable number
+     inputs so a user can type numbers directly if they have them from
+     elsewhere. Leave "—" as the placeholder until computed or typed.
+
+Interaction details:
+- Clicking "Plot launch" / "Mark landing" changes the cursor to a
+  crosshair over the video and shows a small pill at the top of the
+  video with a hint of what to do next.
+- After building a shot, draw a glowing orange ring/dot on the canvas
+  that follows the fitted path in sync with video playback (recompute
+  its position on every timeupdate event based on progress between the
+  marked launch/landing frames).
+- Keep all state in plain JS variables/objects — no external state
+  library needed.
+
+Keep this to a clean, working outline/skeleton I can extend — don't over-
+engineer the trajectory physics or add a backend. One index.html file
+(inline CSS/JS is fine) is preferred so it needs zero build step.

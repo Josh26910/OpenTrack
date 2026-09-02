@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "OpenTrack"
+description = "A client-side golf launch monitor video editor for loading local swing footage, plotting launch and landing points, tracing a shot arc, and editing shot data."
+version = "1.0.0"
+id = "artifacts/opentrack"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23016
+
+[services.development]
+run = "pnpm --filter @workspace/opentrack run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/opentrack", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/opentrack/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23016"
+BASE_PATH = "/"
